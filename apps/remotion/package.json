@@ -1,0 +1,23 @@
+{
+  "name": "@shorts-auto/remotion",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "remotion bundle src/index.ts",
+    "render": "node render.mjs",
+    "preview": "remotion preview src/index.ts"
+  },
+  "dependencies": {
+    "@remotion/bundler": "^4.0.260",
+    "@remotion/cli": "^4.0.260",
+    "@remotion/renderer": "^4.0.260",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "^4.0.260"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "openai_api_key": "",
+  "youtube_api_key": "",
+  "higgsfield_api_key": "",
+  "qwen3_tts_base_url": "http://127.0.0.1:7860",
+  "reference_voice_path": "assets/reference_voice/reference_voice.mp3",
+  "reference_voice_text": "안녕하세요 여러분. 반갑습니다. 오늘도 저희 채널을 찾아주셔서 감사합니다. 영상이 도움되셨다면 구독과 좋아요를 눌러주세요.",
+  "bgm_path": "assets/bgm/channel_bgm.mp3",
+  "bgm_volume": 0.18,
+  "output_dir": "outputs",
+  "default_shorts_duration_seconds": 45,
+  "openai_transcription_model": "whisper-1",
+  "openai_analysis_model": "gpt-4.1-mini",
+  "yt_dlp_binary": "yt-dlp",
+  "reference_audio_filename": "reference_audio.wav",
+  "subtitle_style": {
+    "font_family": "system",
+    "font_weight": 800,
+    "text_color": "#FFFFFF",
+    "outline_color": "#111111",
+    "position": "bottom-center"
+  }
+}

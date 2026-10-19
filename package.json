@@ -1,0 +1,15 @@
+{
+  "name": "shorts-auto",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node tools/dev/start-dev.mjs",
+    "dev:web": "pnpm --filter @shorts-auto/web dev",
+    "dev:api": "cd apps/api && uv run --with-requirements requirements.txt uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
+    "setup:higgsfield-mcp": "node tools/higgsfield-mcp/register.mjs",
+    "test": "pnpm test:api && pnpm test:web",
+    "test:api": "cd apps/api && uv run --with-requirements requirements.txt pytest",
+    "test:web": "pnpm --filter @shorts-auto/web test"
+  }
+}
