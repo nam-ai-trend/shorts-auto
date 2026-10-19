@@ -151,7 +151,16 @@ def generate_tts_for_project(project_dir: Path, settings: AppSettings) -> Path:
 
     base_url = settings.qwen3_tts_base_url
     ref_file_info = _upload_file_to_gradio(base_url, ref_voice_path)
+
+    # 피노키오 TTS 서버의 transcribe_audio로 레퍼런스 음성 텍스트 자동 추출 시도 (실패 시 settings 기본값 fallback)
     ref_text = settings.reference_voice_text
+    try:
+        transcribe_event_id = _call_gradio_api(base_url, "/transcribe_audio", [ref_file_info])
+        transcribe_res = _get_gradio_result(base_url, "/transcribe_audio", transcribe_event_id, timeout=30.0)
+        if transcribe_res and isinstance(transcribe_res, list) and transcribe_res[0]:
+            ref_text = str(transcribe_res[0]).strip()
+    except Exception:
+        pass
 
     clone_data = [
         ref_file_info,
