@@ -97,3 +97,46 @@ def test_production_state_and_assets(tmp_path: Path):
     assert sc1["final_frame_url"] == f"/api/projects/{project_id}/production/scenes/scene_01_final.png"
     assert sc2["start_image_url"] == f"/api/projects/{project_id}/production/scenes/scene_02_start.png"
     assert sc2["continuity"]["prev_final_frame_url"] == sc1["final_frame_url"]
+
+
+def test_production_thumbnail_endpoints(tmp_path: Path):
+    app = create_app(repo_root=tmp_path)
+    client = TestClient(app)
+
+    outputs_dir = tmp_path / "outputs"
+    project = create_project(outputs_dir, project_title="썸네일 테스트", now="261016_1300")
+    project_id = project.project_id
+
+    # 1. 썸네일 업로드
+    file_content = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR_THUMBNAIL_BYTES"
+    files = {"file": ("thumb.png", file_content, "image/png")}
+    resp = client.post(f"/api/projects/{project_id}/production/thumbnail", files=files)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["has_thumbnail"] is True
+    assert data["thumbnail_url"] == f"/api/projects/{project_id}/production/thumbnail"
+
+    # 2. 썸네일 이미지 조회
+    resp = client.get(f"/api/projects/{project_id}/production/thumbnail")
+    assert resp.status_code == 200
+    assert resp.content == file_content
+    assert "no-cache" in resp.headers.get("Cache-Control", "")
+
+    # 3. 썸네일 삭제
+    resp = client.delete(f"/api/projects/{project_id}/production/thumbnail")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["has_thumbnail"] is False
+    assert data["thumbnail_url"] is None
+
+    # 4. 씬 1 이미지로부터 썸네일 설정
+    scenes_dir = outputs_dir / project_id / "scenes"
+    scenes_dir.mkdir(parents=True, exist_ok=True)
+    (scenes_dir / "scene_01_start.png").write_bytes(b"SCENE_1_START_IMAGE")
+    resp = client.post(f"/api/projects/{project_id}/production/thumbnail/from-scene", json={"scene_id": 1})
+    assert resp.status_code == 200
+    assert resp.json()["has_thumbnail"] is True
+    resp = client.get(f"/api/projects/{project_id}/production/thumbnail")
+    assert resp.status_code == 200
+    assert resp.content == b"SCENE_1_START_IMAGE"
+

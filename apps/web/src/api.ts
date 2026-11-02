@@ -1,8 +1,11 @@
 import type {
+  CameraMovementItem,
+  ConceptKit,
   ProductionState,
   Project,
   ProjectResponse,
   ProjectsResponse,
+  RecommendMotionResponse,
   ReferenceCandidate,
   ReferenceSearchPayload,
   ReferenceState,
@@ -10,7 +13,9 @@ import type {
   ScriptsState,
   SettingsStatus,
   TtsValidationResult,
-  UpdateProjectPayload
+  UpdateProjectPayload,
+  VideoSceneItem,
+  VisualStyleItem
 } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -172,6 +177,26 @@ export function finalizeScript(
   });
 }
 
+export function updateFinalScript(
+  projectId: string,
+  finalScript: string
+): Promise<{
+  selected_candidate_id: string;
+  feedback: string;
+  final_script: string;
+  tts_validation: TtsValidationResult;
+}> {
+  return request<{
+    selected_candidate_id: string;
+    feedback: string;
+    final_script: string;
+    tts_validation: TtsValidationResult;
+  }>(`/api/projects/${encodeURIComponent(projectId)}/scripts/final`, {
+    method: "PUT",
+    body: JSON.stringify({ final_script: finalScript })
+  });
+}
+
 export function fetchProductionState(projectId: string): Promise<ProductionState> {
   return request<ProductionState>(`/api/projects/${encodeURIComponent(projectId)}/production`);
 }
@@ -188,9 +213,10 @@ export function alignSubtitlesAndScenes(projectId: string): Promise<ProductionSt
   });
 }
 
-export function generateConcepts(projectId: string): Promise<ProductionState> {
+export function generateConcepts(projectId: string, visualStyleId: string = "claymation"): Promise<ProductionState> {
   return request<ProductionState>(`/api/projects/${encodeURIComponent(projectId)}/production/concepts`, {
-    method: "POST"
+    method: "POST",
+    body: JSON.stringify({ visual_style_id: visualStyleId })
   });
 }
 
@@ -293,3 +319,113 @@ export function updateScenePrompts(
     }
   );
 }
+
+export async function uploadThumbnail(projectId: string, file: File): Promise<ProductionState> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/production/thumbnail`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Upload failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export function generateThumbnail(
+  projectId: string,
+  model: string = "nano_banana_pro",
+  prompt?: string
+): Promise<ProductionState> {
+  return request<ProductionState>(
+    `/api/projects/${encodeURIComponent(projectId)}/production/thumbnail/generate`,
+    {
+      method: "POST",
+      body: JSON.stringify({ model, prompt }),
+    }
+  );
+}
+
+export function setThumbnailFromScene(
+  projectId: string,
+  sceneId: number = 1
+): Promise<ProductionState> {
+  return request<ProductionState>(
+    `/api/projects/${encodeURIComponent(projectId)}/production/thumbnail/from-scene`,
+    {
+      method: "POST",
+      body: JSON.stringify({ scene_id: sceneId }),
+    }
+  );
+}
+
+export function deleteThumbnail(projectId: string): Promise<ProductionState> {
+  return request<ProductionState>(
+    `/api/projects/${encodeURIComponent(projectId)}/production/thumbnail`,
+    {
+      method: "DELETE",
+    }
+  );
+}
+
+export function fetchCameraMovements(projectId: string): Promise<CameraMovementItem[]> {
+  return request<CameraMovementItem[]>(
+    `/api/projects/${encodeURIComponent(projectId)}/production/camera-movements`
+  );
+}
+
+export function recommendSceneMotion(
+  projectId: string,
+  sceneId: number
+): Promise<RecommendMotionResponse> {
+  return request<RecommendMotionResponse>(
+    `/api/projects/${encodeURIComponent(projectId)}/production/scenes/${sceneId}/recommend-motion`,
+    {
+      method: "POST",
+    }
+  );
+}
+
+export function applySceneMotion(
+  projectId: string,
+  sceneId: number,
+  movementId: string,
+  customInstruction: string = ""
+): Promise<{ scene: VideoSceneItem; production: ProductionState }> {
+  return request<{ scene: VideoSceneItem; production: ProductionState }>(
+    `/api/projects/${encodeURIComponent(projectId)}/production/scenes/${sceneId}/apply-motion`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        movement_id: movementId,
+        custom_instruction: customInstruction,
+      }),
+    }
+  );
+}
+
+export function fetchVisualStyles(projectId: string): Promise<VisualStyleItem[]> {
+  return request<VisualStyleItem[]>(
+    `/api/projects/${encodeURIComponent(projectId)}/production/visual-styles`
+  );
+}
+
+export function updateVisualStyle(
+  projectId: string,
+  visualStyleId: string,
+  regeneratePrompts: boolean = false
+): Promise<{ concept_kit: ConceptKit; production: ProductionState }> {
+  return request<{ concept_kit: ConceptKit; production: ProductionState }>(
+    `/api/projects/${encodeURIComponent(projectId)}/production/visual-style`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        visual_style_id: visualStyleId,
+        regenerate_prompts: regeneratePrompts,
+      }),
+    }
+  );
+}
+

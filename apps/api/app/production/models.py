@@ -46,6 +46,7 @@ class VideoSceneItem(BaseModel):
     generated_video_url: str | None = None
     final_frame_url: str | None = None
     continuity: ContinuityState = Field(default_factory=ContinuityState)
+    camera_movement: str | None = None
     is_locked: bool = False
     last_feedback: str | None = None
     last_image_feedback: str | None = None
@@ -70,21 +71,55 @@ class UpdateScenePromptsRequest(BaseModel):
     video_prompt: str | None = None
 
 
+class ApplyMotionRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    movement_id: str
+    custom_instruction: str = ""
+
+
 class RenderShortsRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     title: str | None = None
+    thumbnail_duration_frames: int = 15
 
+
+class ThumbnailGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    model: str = "nano_banana_pro"
+    prompt: str | None = None
+
+
+class ThumbnailFromSceneRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    scene_id: int = 1
 
 
 class ConceptKit(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    visual_style_id: str = "claymation"
     visual_style: str = "Cute professional claymation infographic"
     color_and_lighting: str = ""
     core_objects: list[str] = Field(default_factory=list)
     camera_composition: str = "9:16 vertical composition, shallow depth of field"
     continuity_rules: list[str] = Field(default_factory=list)
+
+
+class GeneratePromptsRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    visual_style_id: str = "claymation"
+
+
+class UpdateVisualStyleRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    visual_style_id: str
+    regenerate_prompts: bool = False
 
 
 class ProductionState(BaseModel):
@@ -104,6 +139,11 @@ class ProductionState(BaseModel):
     video_scene_count: int = 0
     video_scenes: list[VideoSceneItem] = Field(default_factory=list)
 
+    # 썸네일 관리
+    has_thumbnail: bool = False
+    thumbnail_url: str | None = None
+
     # 최종 쇼츠 렌더링 결과
     has_final_video: bool = False
     final_video_url: str | None = None
+

@@ -190,6 +190,7 @@ export interface VideoSceneItem {
   readonly generated_video_url: string | null;
   readonly final_frame_url: string | null;
   readonly continuity: ContinuityState;
+  readonly camera_movement?: string | null;
   readonly is_locked: boolean;
   readonly last_feedback?: string | null;
   readonly last_image_feedback?: string | null;
@@ -197,6 +198,7 @@ export interface VideoSceneItem {
 }
 
 export interface ConceptKit {
+  readonly visual_style_id?: string;
   readonly visual_style: string;
   readonly color_and_lighting: string;
   readonly core_objects: readonly string[];
@@ -216,8 +218,49 @@ export interface ProductionState {
   readonly has_video_scenes?: boolean;
   readonly video_scene_count?: number;
   readonly video_scenes?: readonly VideoSceneItem[];
+  readonly has_thumbnail?: boolean;
+  readonly thumbnail_url?: string | null;
   readonly has_final_video?: boolean;
   readonly final_video_url?: string | null;
+}
+
+export interface CameraMovementItem {
+  readonly id: string;
+  readonly name: string;
+  readonly category: string;
+  readonly summary: string;
+  readonly best_for: readonly string[];
+  readonly prompt_syntax: string;
+  readonly example_prompt: string;
+}
+
+export interface MotionRecommendationItem {
+  readonly movement_id: string;
+  readonly movement_name: string;
+  readonly category: string;
+  readonly reason: string;
+  readonly suggested_video_prompt: string;
+}
+
+export interface RecommendMotionResponse {
+  readonly scene_id: number;
+  readonly narration: string;
+  readonly current_motion_id?: string | null;
+  readonly recommendations: readonly MotionRecommendationItem[];
+  readonly available_movements: readonly CameraMovementItem[];
+}
+
+export interface VisualStyleItem {
+  readonly id: string;
+  readonly number: number;
+  readonly name: string;
+  readonly feature: string;
+  readonly best_for: string;
+  readonly icon: string;
+  readonly system_persona: string;
+  readonly image_prompt_guide: string;
+  readonly default_concept_style: string;
+  readonly sample_prompt_prefix: string;
 }
 
 

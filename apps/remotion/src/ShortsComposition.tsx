@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, Audio, OffthreadVideo, staticFile } from "remotion";
+import { AbsoluteFill, Audio, Img, OffthreadVideo, staticFile, useCurrentFrame } from "remotion";
 import { Subtitles } from "./Subtitles";
 import { TitleOverlay } from "./TitleOverlay";
 import type { ShortsProps } from "./types";
@@ -20,10 +20,14 @@ export const ShortsComposition: React.FC<ShortsProps> = ({
   bgmVolume = 0.15,
   subtitles,
   title,
+  thumbnailSrc,
+  thumbnailDurationFrames = 15,
 }) => {
+  const frame = useCurrentFrame();
   const resolvedVideo = resolveMediaSrc(videoSrc);
   const resolvedAudio = resolveMediaSrc(audioSrc);
   const resolvedBgm = resolveMediaSrc(bgmSrc);
+  const resolvedThumbnail = resolveMediaSrc(thumbnailSrc);
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000000" }}>
@@ -39,17 +43,32 @@ export const ShortsComposition: React.FC<ShortsProps> = ({
         />
       ) : null}
 
-      {/* 2. 성우 나레이션 오디오 레이어 (1.2배속 음성 원본 볼륨 100%) */}
+      {/* 2. 영상 맨 앞장 썸네일 커버 레이어 (첫 프레임~0.5초 동안 비디오 위에 노출) */}
+      {resolvedThumbnail && frame < thumbnailDurationFrames ? (
+        <AbsoluteFill style={{ zIndex: 10, backgroundColor: "#000000" }}>
+          <Img
+            src={resolvedThumbnail}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+            }}
+          />
+        </AbsoluteFill>
+      ) : null}
+
+      {/* 3. 성우 나레이션 오디오 레이어 (1.2배속 음성 원본 볼륨 100%) */}
       {resolvedAudio ? <Audio src={resolvedAudio} volume={1.0} /> : null}
 
-      {/* 3. 채널 BGM 레이어 (배경음악 볼륨 조절 및 루프) */}
+      {/* 4. 채널 BGM 레이어 (배경음악 볼륨 조절 및 루프) */}
       {resolvedBgm ? <Audio src={resolvedBgm} volume={bgmVolume} loop /> : null}
 
-      {/* 4. 고화질 볼드 숏폼 자막 레이어 */}
+      {/* 5. 고화질 볼드 숏폼 자막 레이어 */}
       <Subtitles subtitles={subtitles} />
 
-      {/* 5. 0~2초 오프닝 타이틀 오버레이 레이어 */}
+      {/* 6. 0~2초 오프닝 타이틀 오버레이 레이어 */}
       <TitleOverlay title={title} />
     </AbsoluteFill>
   );
 };
+

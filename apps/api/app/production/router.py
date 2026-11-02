@@ -3,31 +3,51 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from app.core.settings import AppSettings
 from app.jobs.service import append_job, update_job_state
-from app.production.models import FeedbackRegenerateRequest, ProductionState, RenderShortsRequest, UpdateScenePromptsRequest
+from app.production.models import (
+    ApplyMotionRequest,
+    FeedbackRegenerateRequest,
+    GeneratePromptsRequest,
+    ProductionState,
+    RenderShortsRequest,
+    ThumbnailFromSceneRequest,
+    ThumbnailGenerateRequest,
+    UpdateScenePromptsRequest,
+    UpdateVisualStyleRequest,
+)
+from app.production.camera_movements import CORE_CAMERA_MOVEMENTS
+from app.production.visual_styles import VISUAL_STYLES
 from app.production.service import (
     CONCEPT_KIT_FILENAME,
     RAW_STT_FILENAME,
     SCENE_DATA_FILENAME,
     SCENES_DIR_NAME,
+    THUMBNAIL_FILENAME,
     TTS_AUDIO_FILENAME,
     VIDEO_SCENES_FILENAME,
     align_subtitles_and_scenes_for_project,
+    apply_motion_to_scene,
+    delete_thumbnail_image,
     generate_concept_kit_and_video_scenes,
     generate_scene_image_for_project,
     generate_scene_video_for_project,
+    generate_thumbnail_image_for_project,
     generate_tts_for_project,
     get_production_state,
     pass_continuity_frame_to_next_scene,
+    recommend_motion_for_scene,
     refine_and_regenerate_scene,
+    save_thumbnail_image,
+    set_thumbnail_from_scene,
+    update_project_visual_style,
     update_scene_prompts_for_project,
 )
 from app.production.renderer import render_final_shorts
-from app.projects.service import read_project, save_project
+from app.projects.service import _display_name, read_project, save_project
 
 
 def create_production_router(
@@ -193,25 +213,27 @@ def create_production_router(
     @router.post("/concepts")
     def generate_concepts(
         project_id: str,
+        req: GeneratePromptsRequest | None = None,
         outputs: Path = Depends(outputs_dir_provider),
         settings: AppSettings = Depends(settings_provider),
     ):
         job_id: str | None = None
         try:
             path = project_dir(outputs, project_id)
+            visual_style_id = req.visual_style_id if req and req.visual_style_id else "claymation"
             job = append_job(
                 outputs,
                 project_id,
                 "production_concepts",
-                "Generate visual concept kit and continuous video scenes",
+                f"Generate visual concept kit and continuous video scenes ({visual_style_id})",
                 input_paths=["final_script.md", SCENE_DATA_FILENAME],
                 provider="openai",
                 command="generate_concepts",
             )
             job_id = job.job_id
-            update_job_state(outputs, project_id, job.job_id, "running", "Designing concept kit and continuity video scenes")
+            update_job_state(outputs, project_id, job.job_id, "running", f"Designing concept kit and continuity video scenes ({visual_style_id})")
 
-            generate_concept_kit_and_video_scenes(path, settings)
+            generate_concept_kit_and_video_scenes(path, settings, visual_style_id=visual_style_id)
 
             project = read_project(outputs, project_id)
             project.generated_files["concept_kit"] = CONCEPT_KIT_FILENAME
@@ -361,6 +383,79 @@ def create_production_router(
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @router.get("/camera-movements")
+    def get_camera_movements():
+        return [m.model_dump() for m in CORE_CAMERA_MOVEMENTS]
+
+    @router.post("/scenes/{scene_id}/recommend-motion")
+    def recommend_scene_motion(
+        project_id: str,
+        scene_id: int,
+        outputs: Path = Depends(outputs_dir_provider),
+        settings: AppSettings = Depends(settings_provider),
+    ):
+        try:
+            path = project_dir(outputs, project_id)
+            return recommend_motion_for_scene(path, scene_id, settings).model_dump()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.post("/scenes/{scene_id}/apply-motion")
+    def apply_scene_motion(
+        project_id: str,
+        scene_id: int,
+        req: ApplyMotionRequest,
+        outputs: Path = Depends(outputs_dir_provider),
+        settings: AppSettings = Depends(settings_provider),
+    ):
+        try:
+            path = project_dir(outputs, project_id)
+            updated_scene = apply_motion_to_scene(
+                path,
+                scene_id,
+                movement_id=req.movement_id,
+                custom_instruction=req.custom_instruction,
+                settings=settings,
+            )
+            return {
+                "scene": updated_scene.model_dump(),
+                "production": get_production_state(path, project_id).model_dump(),
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.get("/visual-styles")
+    def get_visual_styles():
+        return [s.model_dump() for s in VISUAL_STYLES]
+
+    @router.post("/visual-style")
+    def update_visual_style(
+        project_id: str,
+        req: UpdateVisualStyleRequest,
+        outputs: Path = Depends(outputs_dir_provider),
+        settings: AppSettings = Depends(settings_provider),
+    ):
+        try:
+            path = project_dir(outputs, project_id)
+            concept_kit, _ = update_project_visual_style(
+                path,
+                visual_style_id=req.visual_style_id,
+                regenerate_prompts=req.regenerate_prompts,
+                settings=settings,
+            )
+            return {
+                "concept_kit": concept_kit.model_dump(),
+                "production": get_production_state(path, project_id).model_dump(),
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @router.post("/render")
     def render_shorts(
         project_id: str,
@@ -391,10 +486,14 @@ def create_production_router(
             job_id = job.job_id
             update_job_state(outputs, project_id, job.job_id, "running", "Rendering 9:16 shorts video with subtitles and BGM")
 
-            render_final_shorts(path, settings, title=title)
+            thumb_frames = req.thumbnail_duration_frames if req and req.thumbnail_duration_frames else 15
+            render_final_shorts(path, settings, title=title, thumbnail_duration_frames=thumb_frames)
 
             project = read_project(outputs, project_id)
             project.generated_files["final_video"] = "final.mp4"
+            if title:
+                project.project_title = title
+                project.display_name = _display_name(project.project_id, title)
             save_project(outputs, project)
 
             update_job_state(
@@ -423,7 +522,103 @@ def create_production_router(
             final_p = path / "final.mp4"
             if not final_p.exists():
                 raise HTTPException(status_code=404, detail="final.mp4 영상이 아직 생성되지 않았습니다.")
-            return FileResponse(path=str(final_p), media_type="video/mp4", filename=f"{project_id}_final.mp4")
+            return FileResponse(
+                path=str(final_p),
+                media_type="video/mp4",
+                filename=f"{project_id}_final.mp4",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.get("/thumbnail")
+    def get_thumbnail(project_id: str, outputs: Path = Depends(outputs_dir_provider)):
+        try:
+            path = project_dir(outputs, project_id)
+            thumb_p = path / THUMBNAIL_FILENAME
+            if not thumb_p.exists():
+                raise HTTPException(status_code=404, detail="썸네일 이미지가 없습니다.")
+            return FileResponse(
+                path=str(thumb_p),
+                media_type="image/png",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.post("/thumbnail")
+    async def upload_thumbnail(
+        project_id: str,
+        file: UploadFile = File(...),
+        outputs: Path = Depends(outputs_dir_provider),
+    ):
+        try:
+            path = project_dir(outputs, project_id)
+            content = await file.read()
+            if not content:
+                raise HTTPException(status_code=400, detail="업로드된 파일이 비어 있습니다.")
+            save_thumbnail_image(path, content)
+            return get_production_state(path, project_id).model_dump()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.post("/thumbnail/generate")
+    def generate_thumbnail(
+        project_id: str,
+        req: ThumbnailGenerateRequest | None = None,
+        outputs: Path = Depends(outputs_dir_provider),
+        settings: AppSettings = Depends(settings_provider),
+    ):
+        try:
+            path = project_dir(outputs, project_id)
+            model = req.model if req and req.model else "nano_banana_pro"
+            prompt = req.prompt if req else None
+            generate_thumbnail_image_for_project(path, settings, model_name=model, prompt=prompt)
+            return get_production_state(path, project_id).model_dump()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.post("/thumbnail/from-scene")
+    def set_thumbnail_scene(
+        project_id: str,
+        req: ThumbnailFromSceneRequest | None = None,
+        outputs: Path = Depends(outputs_dir_provider),
+    ):
+        try:
+            path = project_dir(outputs, project_id)
+            scene_id = req.scene_id if req and req.scene_id else 1
+            set_thumbnail_from_scene(path, scene_id=scene_id)
+            return get_production_state(path, project_id).model_dump()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.delete("/thumbnail")
+    def delete_thumbnail(
+        project_id: str,
+        outputs: Path = Depends(outputs_dir_provider),
+    ):
+        try:
+            path = project_dir(outputs, project_id)
+            delete_thumbnail_image(path)
+            return get_production_state(path, project_id).model_dump()
         except HTTPException:
             raise
         except Exception as exc:

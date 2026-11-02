@@ -59,6 +59,24 @@ class ScriptCandidate(BaseModel):
         cleaned = value.replace("**", "").replace('"', "").replace("'", "")
         return cleaned.strip()
 
+    @field_validator("tags")
+    @classmethod
+    def clean_tags_text(cls, value: str) -> str:
+        # #쇼츠, #shorts 제거
+        tokens = [t.strip() for t in value.split() if t.strip()]
+        filtered = [t for t in tokens if t not in ("#쇼츠", "#shorts", "쇼츠", "shorts")]
+        return " ".join(filtered)
+
+    @field_validator("keywords")
+    @classmethod
+    def clean_keywords_text(cls, value: str) -> str:
+        # 쉼표 구분 키워드 파싱 및 맨 뒤에 과학쇼츠, 쇼츠, 과학지식 필수 추가 (# 없이 순수 키워드)
+        mandatory = ["과학쇼츠", "쇼츠", "과학지식"]
+        parts = [p.strip().lstrip("#") for p in value.split(",") if p.strip()]
+        filtered: list[str] = [p for p in parts if p not in mandatory]
+        filtered.extend(mandatory)
+        return ", ".join(filtered)
+
 
 class TtsValidationResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -136,3 +154,15 @@ class GenerateCandidatesRequest(BaseModel):
     @classmethod
     def clean_feedback(cls, value: str) -> str:
         return value.strip()
+
+
+class UpdateFinalScriptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    final_script: str = Field(min_length=1, max_length=FINAL_SCRIPT_MAX_LENGTH)
+
+    @field_validator("final_script")
+    @classmethod
+    def clean_script(cls, value: str) -> str:
+        return clean_text(value, "final_script", FINAL_SCRIPT_MAX_LENGTH)
+

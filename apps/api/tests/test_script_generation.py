@@ -13,6 +13,7 @@ from app.scripts.files import (
 from app.scripts.generation import (
     build_candidate_generation_prompt,
     build_final_script_prompt,
+    extract_verbatim_script_from_feedback,
     validate_candidate_payload,
     validate_final_script,
 )
@@ -209,4 +210,46 @@ def test_validate_candidate_payload_accepts_two_drafts():
     assert len(candidates) == 2
     assert candidates[0].candidate_id == "draft_a"
     assert candidates[1].candidate_id == "draft_b"
+
+
+def test_extract_verbatim_script_from_feedback():
+    feedback = """아래와 똑같이 해줘. 완전똑같이
+
+주유소에서 기름이 딸깍 멈출 때, 왜 그런지 궁금했죠? 사실 주유기 끝에 아주 작은 구멍이 하나 있어요. 기름 넣는 동안 이 구멍은 탱크 내 공기를 끌어들이는 역할을 합니다."""
+    result = extract_verbatim_script_from_feedback(feedback)
+    assert result is not None
+    assert "주유소에서 기름이 딸깍 멈출 때" in result
+    assert "아래와 똑같이" not in result
+
+    # Should return None if no verbatim trigger
+    assert extract_verbatim_script_from_feedback("더 짧고 강하게 해줘") is None
+
+
+def test_script_candidate_tags_and_keywords_normalization():
+    cand = ScriptCandidate(
+        candidate_id="draft_a",
+        candidate_type="draft_a",
+        title="테스트 제목",
+        tags="#교통카드 #배터리 #쇼츠 #shorts",
+        keywords="교통카드, 스마트폰 배터리, #쇼츠",
+        hook="훅 대사",
+        target_viewer="시청자",
+        why_it_can_work="알고리즘 이유",
+        main_curiosity_question="호기심 질문",
+        structure_summary="구조 요약",
+        draft_script="대본 본문",
+        borrowed_reference_structure="공식 차용",
+    )
+    # tags에서 #쇼츠, #shorts 제거 확인
+    assert "#쇼츠" not in cand.tags
+    assert "#shorts" not in cand.tags
+    assert cand.tags == "#교통카드 #배터리"
+
+    # keywords에서 # 없이 과학쇼츠, 쇼츠, 과학지식이 맨 뒤에 붙는지 확인
+    assert cand.keywords.endswith("과학쇼츠, 쇼츠, 과학지식")
+    assert "#과학쇼츠" not in cand.keywords
+    assert "#쇼츠" not in cand.keywords
+    assert cand.keywords == "교통카드, 스마트폰 배터리, 과학쇼츠, 쇼츠, 과학지식"
+
+
 

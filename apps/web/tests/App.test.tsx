@@ -23,7 +23,12 @@ import {
   searchReferences,
   selectScriptCandidate,
   selectReference,
-  updateProject
+  updateProject,
+  fetchVisualStyles,
+  updateVisualStyle,
+  recommendSceneMotion,
+  applySceneMotion,
+  fetchCameraMovements
 } from "../src/api";
 import type {
   Project,
@@ -53,7 +58,12 @@ vi.mock("../src/api", () => ({
   searchReferences: vi.fn(),
   selectScriptCandidate: vi.fn(),
   selectReference: vi.fn(),
-  updateProject: vi.fn()
+  updateProject: vi.fn(),
+  fetchVisualStyles: vi.fn().mockResolvedValue([]),
+  updateVisualStyle: vi.fn().mockResolvedValue({}),
+  recommendSceneMotion: vi.fn().mockResolvedValue({ scene_id: 1, narration: "", recommendations: [], available_movements: [] }),
+  applySceneMotion: vi.fn().mockResolvedValue({}),
+  fetchCameraMovements: vi.fn().mockResolvedValue([])
 }));
 
 const project: Project = {
@@ -155,10 +165,16 @@ const searchReferencesMock = vi.mocked(searchReferences);
 const selectScriptCandidateMock = vi.mocked(selectScriptCandidate);
 const selectReferenceMock = vi.mocked(selectReference);
 const updateProjectMock = vi.mocked(updateProject);
+const fetchVisualStylesMock = vi.mocked(fetchVisualStyles);
+const recommendSceneMotionMock = vi.mocked(recommendSceneMotion);
+const fetchCameraMovementsMock = vi.mocked(fetchCameraMovements);
 
 describe("App", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    fetchVisualStylesMock.mockResolvedValue([]);
+    recommendSceneMotionMock.mockResolvedValue({ scene_id: 1, narration: "", recommendations: [], available_movements: [] });
+    fetchCameraMovementsMock.mockResolvedValue([]);
     fetchProjectsMock.mockResolvedValue([project]);
     fetchReferenceStateMock.mockResolvedValue(referenceState);
     fetchScriptsStateMock.mockResolvedValue(scriptsState);

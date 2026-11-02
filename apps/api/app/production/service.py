@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,19 @@ from app.production.models import (
     SceneTextBlock,
     VideoSceneItem,
 )
+from app.production.camera_movements import (
+    CORE_CAMERA_MOVEMENTS,
+    CORE_MOVEMENTS_MAP,
+    CameraMovementItem,
+    MotionRecommendationItem,
+    RecommendMotionResponse,
+)
+from app.production.visual_styles import (
+    VISUAL_STYLES,
+    VISUAL_STYLES_MAP,
+    VisualStyleItem,
+    get_visual_style,
+)
 
 TTS_AUDIO_FILENAME = "output_1.2x.wav"
 RAW_STT_FILENAME = "raw_stt.json"
@@ -27,6 +41,8 @@ SCENE_DATA_FILENAME = "scene_data.json"
 CONCEPT_KIT_FILENAME = "concept_kit.json"
 VIDEO_SCENES_FILENAME = "video_scenes.json"
 SCENES_DIR_NAME = "scenes"
+THUMBNAIL_FILENAME = "thumbnail.png"
+THUMBNAIL_BG_FILENAME = "thumbnail_bg.png"
 FPS = 30
 SPEED_RATE = 1.2
 
@@ -197,40 +213,84 @@ def _refine_stt_text_with_llm(
     script_text: str,
     model: str = "gpt-4o-mini",
 ) -> list[str]:
-    stt_texts = [f"[{i}] {seg['text']}" for i, seg in enumerate(segments)]
+    """
+    STT 세그먼트별 텍스트를 원본 대본을 참조하여 숫자/단위/고유명사 오탈자 위주로 1:1 교정합니다.
+    엄격한 1:1 매칭 및 글자 수/유사도 검증(Safety Guard)을 적용하여,
+    LLM의 환각이나 세그먼트 간 문장 병합/왜곡을 원천 차단합니다.
+    """
+    if not segments:
+        return []
+
+    stt_texts = [f"[{i}] {seg['text'].strip()}" for i, seg in enumerate(segments)]
     stt_combined = "\n".join(stt_texts)
 
     prompt = f"""
-원본 대본을 참고하여 STT 결과를 유튜브 쇼츠 자막용으로 교정하세요.
-1. 숫자/단위 교정 (예: 칠십 퍼센트 -> 70%, 십 미터 -> 10m)
-2. 고유명사 및 영문 교정 (예: 에이아이 -> AI)
-3. 추임새/문맥 표기는 대본에 있다면 최대한 자연스럽게 유지.
-4. JSON 배열 ["텍스트0", "텍스트1", ...] 형식으로만 반환하세요.
-5. 중요: 입력된 STT 결과의 개수({len(segments)}개)와 정확히 일치하는 개수의 배열을 반환하세요. 임의로 합치거나 생략하지 마세요.
+당신은 유튜브 쇼츠 음성 자막 검수 전문가입니다.
+아래 [STT 결과]의 각 번호 [0] ~ [{len(segments) - 1}]는 성우 음성의 짧은 타임스탬프 구간입니다.
+원본 대본을 참고하여 각 번호의 텍스트를 '1:1'로만 미세 교정하세요.
 
-[원본 대본]
+[절대 규칙 - 엄격 준수]
+1. 각 번호 [i]의 결과는 반드시 해당 [i]의 원본 STT 음성 조각과 내용/길이가 거의 같아야 합니다.
+2. 절대로 여러 번호의 문장을 하나로 합치거나, 다른 번호의 단어를 앞당겨 오지 마세요.
+3. 오직 숫자/단위(예: 오만 볼트 -> 5만 볼트, 이백 킬로미터 -> 200km)나 명백한 오타(에이아이 -> AI)만 다듬으세요.
+4. 원본 STT에서 문장이 중간에 끊겨 있어도("...다트는 시속 200km 속도", "로 날아가 몸에 꽂힙니다"), 끊긴 그대로 유지하세요.
+5. 입력된 번호 개수({len(segments)}개)와 정확히 일치하는 JSON 배열 형식으로만 응답하세요:
+["교정0", "교정1", ..., "교정{len(segments) - 1}"]
+
+[원본 대본 참고용]
 {script_text}
 
-[STT 결과]
+[STT 결과 (각 줄마다 1:1 교정 대상)]
 {stt_combined}
 """
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.0,
-    )
-    content = response.choices[0].message.content.strip()
-    if content.startswith("```json"):
-        content = content[7:-3].strip()
-    elif content.startswith("```"):
-        content = content[3:-3].strip()
+
+    refined_results: list[str] = [seg["text"].strip() for seg in segments]
+
     try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+        )
+        content = response.choices[0].message.content.strip()
+        if content.startswith("```json"):
+            content = content[7:-3].strip()
+        elif content.startswith("```"):
+            content = content[3:-3].strip()
+
         parsed = json.loads(content)
-        if isinstance(parsed, list):
-            return [str(item) for item in parsed]
+        if isinstance(parsed, list) and len(parsed) == len(segments):
+            for i, seg in enumerate(segments):
+                orig_text = seg["text"].strip()
+                cand_text = str(parsed[i]).strip()
+
+                # Safety Guard 1: 빈 문자열 검사
+                if not cand_text:
+                    continue
+
+                # Safety Guard 2: 글자 수 비율 검사 (0.55 ~ 1.85 배 범위를 벗어나면 문장 병합/누락 의심)
+                orig_len = max(len(orig_text), 1)
+                cand_len = len(cand_text)
+                ratio = cand_len / orig_len
+                if ratio < 0.55 or ratio > 1.85:
+                    # 비정상적 길이 변화 -> 원본 유지
+                    continue
+
+                # Safety Guard 3: 문자 유사도 검증 (원본 텍스트 문자의 40% 이상 유지)
+                orig_chars = set(c for c in orig_text if not c.isspace())
+                cand_chars = set(c for c in cand_text if not c.isspace())
+                if orig_chars:
+                    overlap = len(orig_chars & cand_chars) / len(orig_chars)
+                    if overlap < 0.40:
+                        # 전혀 다른 문장으로 왜곡됨 -> 원본 유지
+                        continue
+
+                refined_results[i] = cand_text
     except Exception:
+        # LLM 호출 실패나 파싱 오류 시 원본 STT 세그먼트 텍스트 100% 보존
         pass
-    return [seg["text"] for seg in segments]
+
+    return refined_results
 
 
 def align_subtitles_and_scenes_for_project(project_dir: Path, settings: AppSettings) -> list[SceneItem]:
@@ -472,7 +532,20 @@ def calibrate_scenes_with_stt(
 def generate_concept_kit_and_video_scenes(
     project_dir: Path,
     settings: AppSettings,
+    visual_style_id: str = "claymation",
 ) -> tuple[ConceptKit, list[VideoSceneItem]]:
+    # 기존 concept_kit.json에 지정된 스타일이 있고 파라미터가 기본값이면 기존 스타일 유지
+    concept_kit_file = project_dir / CONCEPT_KIT_FILENAME
+    if visual_style_id == "claymation" and concept_kit_file.exists():
+        try:
+            existing_ck = json.loads(concept_kit_file.read_text(encoding="utf-8"))
+            if existing_ck.get("visual_style_id"):
+                visual_style_id = existing_ck["visual_style_id"]
+        except Exception:
+            pass
+
+    style = get_visual_style(visual_style_id)
+
     final_script_path = project_dir / "final_script.md"
     script_text = final_script_path.read_text(encoding="utf-8").strip() if final_script_path.exists() else ""
     if not script_text:
@@ -499,9 +572,9 @@ def generate_concept_kit_and_video_scenes(
 
     client = OpenAI(api_key=settings.openai_api_key)
     prompt = f"""
-당신은 세계 최고의 AI 쇼츠 영상 디렉터이자 3D 스톱모션 클레이메이션 비주얼 마스터입니다.
+당신은 세계 최고의 AI 쇼츠 영상 디렉터입니다. {style.system_persona}
 주어진 쇼츠 대본과 STT 타임스탬프를 바탕으로:
-1. 'Cute professional claymation infographic' 스타일의 비주얼 컨셉 키트(`concept_kit`)를 설계하세요.
+1. '{style.name}' ({style.default_concept_style}) 스타일에 맞춘 비주얼 컨셉 키트(`concept_kit`)를 설계하세요.
 2. 전체 영상 오디오 길이(총 {duration:.1f}초)와 대본에서 분할된 총 {sentence_count}개의 의미 단위 구절 목록에 맞추어,
    **단 하나의 구절도 누락하거나 임의로 묶지 않고 1:1로 정확히 {sentence_count}개의 연속적인 비디오 씬(Scene 1 ~ Scene {sentence_count})을 설계**하세요.
    쇼츠 대본 길이에 따라 씬 개수는 자유롭고 유연하게 확장/축소되며(현재 대본 기준: 총 {sentence_count}개 씬),
@@ -527,33 +600,42 @@ def generate_concept_kit_and_video_scenes(
 ======================================================================
 [규칙 1: 이미지 프롬프트 (start_image_prompt) 강화 가이드라인]
 ======================================================================
-- **1. 주연 캐릭터 및 피사체 고정 락 (Hero Character Lock - 절대 필수)**:
-  - 대본의 내용과 주제에 가장 잘 부합하는 핵심 주인공 캐릭터를 1개 정의하세요.
-  - 해당 캐릭터의 고유 외형과 비주얼 특징을 정하고, 모든 씬 프롬프트에 100% 동일하게 일관되게 명시하세요.
-  - 절대로 대본 주제와 상관없는 엉뚱한 캐릭터를 임의로 넣지 마시고, 'a clay figurine'처럼 모호하게 쓰지 마세요.
+- **1. 주연 캐릭터 및 피사체 고정 락 (Hero Character/Subject Lock - 절대 필수)**:
+  - 대본의 내용과 주제에 가장 잘 부합하는 핵심 주인공 캐릭터 또는 피사체를 1개 정의하세요.
+  - 해당 피사체의 고유 외형과 비주얼 특징을 정하고, 모든 씬 프롬프트에 100% 동일하게 일관되게 명시하세요.
+  - 절대로 대본 주제와 상관없는 엉뚱한 캐릭터를 임의로 넣지 마세요.
 - **2. 나레이션 직결 시각화 원칙 (Narration-Driven Visual Metaphor - 핵심)**:
   - 각 씬의 이미지는 해당 씬의 나레이션 핵심 내용과 과학적 사실/지식을 시청자가 1초 만에 직관적으로 이해할 수 있는 **상황 극화 및 시각적 은유**가 화면 중심에 반드시 존재해야 합니다!
 - **3. 무대/배경 연속성 락 (Stage & Setting Continuity)**:
   - 대본 주제에 맞는 세계관과 배경 공간을 설정하고, 이어지는 씬들 간에 공간적 일관성을 유지하세요.
-- **4. 초미니어처 생명체 스케일 & 극적 대비**:
-  - 인물은 **"tiny miniature clay figurine (approx. 2-3cm scale)"**로 묘사하고, 이를 둘러싼 거대한 오브젝트나 자연 현상과 극적인 스케일 대비를 이루게 하세요.
-- **5. 매크로 접사 및 클레이 공예 질감 (Tactile Macro Details)**:
-  - 프롬프트에 매크로 사진 디테일을 반드시 포함하세요:
-    `macro photography details, visible handcrafted clay fingerprints, hand-molded plasticine textures, soft matte finish, subtle clay seams, shallow depth of field with creamy bokeh`.
-- **6. 조명과 색감 (Studio Lighting & Atmosphere)**:
-  - 부드러운 스튜디오 림라이트, 방향성 키라이트, 입체적인 그림자 (`cinematic studio lighting, soft rim highlights, deep tactile shadows`).
-- **7. 텍스트 완전 배제 (Strict Negative Constraint)**:
+- **4. 스타일별 특화 질감 및 비주얼 가이드 ({style.name})**:
+{style.image_prompt_guide}
+- **5. 텍스트 완전 배제 (Strict Negative Constraint)**:
   - 이미지 내에 어떠한 글자, 숫자, 기호, 워터마크도 절대 나타나선 안 됩니다:
-    `Strictly NO text, NO letters, NO numbers, NO labels, NO typography, NO watermark, clean 3D clay visual`.
-- **8. 포맷**: 반드시 수직 9:16 비율(`vertical 9:16 portrait aspect ratio`)의 영문 프롬프트로 작성하세요.
+    `Strictly NO text, NO letters, NO numbers, NO labels, NO typography, NO watermark.`
+- **6. 포맷**: 반드시 수직 9:16 비율(`vertical 9:16 portrait aspect ratio`)의 영문 프롬프트로 작성하세요.
 
 ======================================================================
-[규칙 2: 영상 프롬프트 (video_prompt) 연속성 극대화 가이드라인]
+[규칙 2: 쇼츠 전문 카메라 모션 (camera_movement & video_prompt) 가이드라인]
 ======================================================================
-- **반드시 다음 [3단계 시퀀스 공식]을 하나의 매끄러운 영문 문단으로 작성하세요**:
-  1) **[Starting Visual Anchor]**: 현재 씬의 시작 이미지 구도와 피사체 초기 상태에서 출발 명시.
-  2) **[Dynamic Continuous Motion & Camera Trajectory]**: 단일 샷(Single-take)의 끊김 없는 부드러운 카메라 이동과 물리적 클레이 스톱모션 애니메이션 명시.
-  3) **[Ending Visual Anchor & Handoff Target]**: 영상이 끝나는 지점의 구도와 포커스를 명확히 하여 다음 씬의 시작 이미지와 완벽히 맞아떨어지도록 인계 명시 (Smooth stop-motion animation, no jump cuts).
+쇼츠의 몰입감과 템포를 위해, 다음 12대 핵심 카메라 모션 중 각 씬의 역할(후킹, 반전, 설명, 클라이맥스)에 가장 적합한 모션을 선정하여 `camera_movement`에 지정하고, aicameramovements.com 표준 4단 문법으로 `video_prompt`를 작성하세요:
+
+- 12대 핵심 모션 ID 목록:
+  1) `crash_zoom_in`: 0~3초 상식 충돌 후킹, 충격적인 팩트 발표 시 급격한 타격감 있는 줌인
+  2) `whip_pan`: '그런데 여기서 반전이 일어납니다' 등 국면 전환 시 신속한 수평 채찍 회전과 전환
+  3) `slow_zoom_in`: 호기심 유발 및 미세 과학 메커니즘으로의 점진적 몰입/긴장감 고조
+  4) `slow_zoom_out`: 숨겨진 실체나 주변 환경의 실체를 서서히 드러내며 시야 확장
+  5) `orbit`: 피사체 주위를 360도 회전하며 3D 입체감과 오브젝트 형태 감상
+  6) `arc_shot`: 얕은 곡선 궤적으로 돌아가 피사체와 배경의 거리감(시차) 강조
+  7) `tracking_shot`: 움직이는 피사체/물질의 흐름을 일정 거리 유지하며 역동적 추적
+  8) `low_tracking`: 지면 밀착 로우 앵글로 피사체를 거대하고 웅장하게 위압감 있게 연출
+  9) `push_past`: 전경 피사체를 스쳐 지나가며 다음 공간/다음 씬 오브젝트를 원테이크로 공개
+  10) `pedestal_up`: 수직으로 상승하며 거대한 높이나 스케일, 상승하는 에너지를 공개
+  11) `drone_pull_back`: 빠르게 뒤로 멀어지며 엔딩 클리프행어/압도적 총량 체감
+  12) `static_shot`: 카메라를 고정하여 미세한 액션이나 텍스처 자체에 안정적 집중
+
+- **video_prompt 작성 공식 (aicameramovements 표준 4단 포맷 - 영문 작성)**:
+  `camera: {{모션명}}. movement: {{현재 시작 이미지 상태에서 물리적 이동 경로}}. speed: {{모션 속도 및 템포}}. framing: {{피사체 구도 및 프레이밍}}. end: {{종료 지점 구도 및 다음 씬으로의 자연스러운 원테이크 인계 상태, no jump cuts}}.`
 
 ======================================================================
 [규칙 3: continuity 필드]
@@ -578,10 +660,11 @@ def generate_concept_kit_and_video_scenes(
 반드시 다음 pure JSON 구조로만 반환하세요 (pure JSON, no markdown backticks):
 {{
   "concept_kit": {{
-    "visual_style": "Cute professional miniature claymation infographic, vertical 9:16, handcrafted plasticine texture, visible fingerprints, stop-motion look, vivid rich studio lighting, macro photography",
-    "color_and_lighting": "Cinematic soft key light, thematic cohesive palette matching the script, deep studio shadows, no neon pink or purple",
-    "core_objects": ["대본의 핵심 오브젝트 1 (영문)", "대본의 핵심 오브젝트 2 (영문)", "주인공 클레이 피규어 (영문)", "핵심 환경 요소 (영문)"],
-    "camera_composition": "Vertical 9:16 portrait framing, eye-level to dynamic macro camera movements, macro lens with creamy bokeh",
+    "visual_style_id": "{style.id}",
+    "visual_style": "{style.default_concept_style}",
+    "color_and_lighting": "Cinematic soft key light, thematic cohesive palette matching the script",
+    "core_objects": ["대본의 핵심 오브젝트 1 (영문)", "대본의 핵심 오브젝트 2 (영문)", "주인공 피사체 (영문)", "핵심 환경 요소 (영문)"],
+    "camera_composition": "Vertical 9:16 portrait framing, eye-level to dynamic camera movements",
     "continuity_rules": [
       "Camera motions smoothly guide the visual narrative through single-take transitions.",
       "The final frame object and camera angle of the previous scene seamlessly become the starting visual anchor of the next scene."
@@ -594,12 +677,13 @@ def generate_concept_kit_and_video_scenes(
       "start": 0.0,
       "end": 5.5,
       "narration": "해당 씬에 해당하는 원본 한국어 대본 문장 그대로 (절대 영어 번역 금지)",
-      "start_image_prompt": "Claymation style vertical 9:16 portrait, macro photography. [Scene 1의 대본 내용에 맞춘 정밀한 영문 이미지 프롬프트]. Handcrafted plasticine texture with visible fingerprints, soft studio directional lighting, creamy background bokeh, strictly NO text, NO letters.",
-      "video_prompt": "Starting from the [Scene 1 시작 구도 영문], the camera performs a continuous smooth [카메라 모션 및 피사체 움직임 영문], finishing on [Scene 2로 이어지는 엔딩 구도 영문]. Smooth stop-motion animation, no jump cuts.",
+      "camera_movement": "crash_zoom_in",
+      "start_image_prompt": "{style.sample_prompt_prefix}",
+      "video_prompt": "camera: crash zoom in. movement: snap the lens rapidly toward the focal subject. speed: very fast and punchy. framing: keep the subject readable through sudden scale change. end: land on an intense close-up, smoothly handing off to scene 2, no jump cuts.",
       "continuity": {{
         "camera": "Eye-level starting shot performing a smooth motion",
         "subject_state": "Initial state of the subject in Scene 1",
-        "lighting": "Bright warm studio spotlight with soft directional fill",
+        "lighting": "Cohesive studio lighting matching the visual style",
         "handoff_description": "Seamless transition description to Scene 2"
       }}
     }}
@@ -619,7 +703,11 @@ def generate_concept_kit_and_video_scenes(
         content = content[3:-3].strip()
 
     data = json.loads(content)
-    concept_kit = ConceptKit.model_validate(data["concept_kit"])
+    ck_dict = data.get("concept_kit", {})
+    ck_dict["visual_style_id"] = style.id
+    if not ck_dict.get("visual_style"):
+        ck_dict["visual_style"] = style.default_concept_style
+    concept_kit = ConceptKit.model_validate(ck_dict)
     raw_video_scenes: list[VideoSceneItem] = []
     for item in data.get("video_scenes", []):
         sc_start = float(item.get("start", 0.0))
@@ -634,6 +722,7 @@ def generate_concept_kit_and_video_scenes(
             narration=item.get("narration", ""),
             start_image_prompt=item.get("start_image_prompt", ""),
             video_prompt=item.get("video_prompt", ""),
+            camera_movement=item.get("camera_movement") or None,
             continuity=ContinuityState.model_validate(item.get("continuity", {})),
             is_locked=bool(item.get("is_locked", False)),
         )
@@ -823,6 +912,17 @@ def generate_scene_image_for_project(
         except Exception:
             pass
 
+    def _finalize_image(img_path: Path) -> Path:
+        if scene_id == 1 and img_path.exists() and img_path.stat().st_size > 0:
+            thumb_bg = project_dir / THUMBNAIL_BG_FILENAME
+            try:
+                shutil.copy2(img_path, thumb_bg)
+                from app.production.renderer import render_thumbnail_image
+                render_thumbnail_image(project_dir, source_image=thumb_bg)
+            except Exception:
+                pass
+        return img_path
+
     # 1. 힉스필드 모델 시도 (nano_banana_pro, gpt_image_2, seedream_v5_pro, flux_3_image 등)
     if model_name != "dall-e-3":
         try:
@@ -835,7 +935,7 @@ def generate_scene_image_for_project(
             resp = httpx.get(image_url, timeout=90.0)
             if resp.status_code == 200:
                 start_image_path.write_bytes(resp.content)
-                return start_image_path
+                return _finalize_image(start_image_path)
         except Exception:
             pass
 
@@ -854,13 +954,13 @@ def generate_scene_image_for_project(
             resp = httpx.get(dalle_url, timeout=60.0)
             if resp.status_code == 200:
                 start_image_path.write_bytes(resp.content)
-                return start_image_path
+                return _finalize_image(start_image_path)
     except Exception:
         pass
 
     # 3. Fallback 그래픽 생성
     _generate_fallback_clay_image(start_image_path, scene_id, prompt, is_final=False)
-    return start_image_path
+    return _finalize_image(start_image_path)
 
 
 def generate_scene_video_for_project(
@@ -1290,6 +1390,10 @@ def get_production_state(project_dir: Path, project_id: str | None = None) -> Pr
     has_final_video = final_video_file.exists() and final_video_file.stat().st_size > 1000
     final_video_url = f"/api/projects/{pid}/production/final-video" if has_final_video else None
 
+    thumb_file = project_dir / THUMBNAIL_FILENAME
+    has_thumbnail = thumb_file.exists() and thumb_file.stat().st_size > 0
+    thumbnail_url = f"/api/projects/{pid}/production/thumbnail" if has_thumbnail else None
+
     return ProductionState(
         has_audio=has_audio,
         audio_filename=TTS_AUDIO_FILENAME if has_audio else None,
@@ -1302,6 +1406,8 @@ def get_production_state(project_dir: Path, project_id: str | None = None) -> Pr
         has_video_scenes=has_video_scenes,
         video_scene_count=len(video_scenes),
         video_scenes=video_scenes,
+        has_thumbnail=has_thumbnail,
+        thumbnail_url=thumbnail_url,
         has_final_video=has_final_video,
         final_video_url=final_video_url,
     )
@@ -1336,5 +1442,379 @@ def update_scene_prompts_for_project(
 
     raw_scenes[target_idx] = target_scene
     video_scenes_path.write_text(json.dumps(raw_scenes, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def recommend_motion_for_scene(
+    project_dir: Path,
+    scene_id: int,
+    settings: AppSettings,
+) -> RecommendMotionResponse:
+    video_scenes_path = project_dir / VIDEO_SCENES_FILENAME
+    if not video_scenes_path.exists():
+        raise FileNotFoundError("video_scenes.json이 없습니다.")
+
+    raw_scenes = json.loads(video_scenes_path.read_text(encoding="utf-8"))
+    target_idx = None
+    target_scene = None
+    for idx, sc in enumerate(raw_scenes):
+        if sc.get("scene_id") == scene_id:
+            target_idx = idx
+            target_scene = sc
+            break
+
+    if target_scene is None or target_idx is None:
+        raise ValueError(f"Scene {scene_id}를 찾을 수 없습니다.")
+
+    narration = target_scene.get("narration", "")
+    start_image_prompt = target_scene.get("start_image_prompt", "")
+    current_video_prompt = target_scene.get("video_prompt", "")
+    current_motion_id = target_scene.get("camera_movement")
+
+    # 전후 씬 맥락
+    prev_scene = raw_scenes[target_idx - 1] if target_idx > 0 else None
+    next_scene = raw_scenes[target_idx + 1] if target_idx < len(raw_scenes) - 1 else None
+
+    prev_context = f"Scene {prev_scene.get('scene_id')}: {prev_scene.get('narration', '')} (모션: {prev_scene.get('camera_movement', '미지정')})" if prev_scene else "첫 번째 씬 (시작)"
+    next_context = f"Scene {next_scene.get('scene_id')}: {next_scene.get('narration', '')} (모션: {next_scene.get('camera_movement', '미지정')})" if next_scene else "마지막 씬 (결말)"
+
+    movement_catalog_text = "\n".join([
+        f"- ID: {m.id} | 이름: {m.name} | 카테고리: {m.category}\n  설명: {m.summary}\n  추천 씬: {', '.join(m.best_for)}\n  프롬프트 문법: {m.prompt_syntax}"
+        for m in CORE_CAMERA_MOVEMENTS
+    ])
+
+    recommendations: list[MotionRecommendationItem] = []
+
+    if settings.openai_api_key:
+        try:
+            client = OpenAI(api_key=settings.openai_api_key)
+            prompt = f"""당신은 세계 최고의 AI 쇼츠 카메라 연출 감독이자 프롬프트 엔지니어입니다.
+aicameramovements.com의 12대 핵심 카메라 모션 라이브러리를 바탕으로, 현재 씬의 대본 문맥과 시각적 상황에 가장 극적인 몰입감과 텐션을 주는 상위 2~3개의 카메라 모션을 추천하고, 각각에 대한 완성형 비디오 프롬프트를 작성하세요.
+
+[현재 씬 정보]
+- 씬 번호: Scene {scene_id} (총 {len(raw_scenes)}개 씬 중)
+- 대본 나레이션: "{narration}"
+- 시작 이미지 프롬프트: "{start_image_prompt}"
+- 기존 비디오 프롬프트: "{current_video_prompt}"
+- 이전 씬 맥락: {prev_context}
+- 다음 씬 맥락: {next_context}
+
+[12대 핵심 카메라 모션 카탈로그]
+{movement_catalog_text}
+
+[작성 및 추천 규칙]
+1. 위 카탈로그에서 현재 씬의 감정선(0~3초 충격 후킹, 미세 호기심, 팩트 폭탄, 반전 전환, 클라이맥스/결말)에 가장 적합한 모션 2~3개를 선정하세요.
+2. 각 모션별 추천 이유(reason)를 한국어로 명확하고 설득력 있게 한 문장으로 작성하세요.
+3. 각 모션별 `suggested_video_prompt`는 aicameramovements 표준 영문 4단 문법으로 완성하세요:
+   `camera: {{모션명}}. movement: {{구체적 물리 이동}}. speed: {{속도}}. framing: {{피사체 구도}}. end: {{종료 지점 및 다음 씬 인계 상태, no jump cuts}}.`
+
+반드시 다음 pure JSON으로만 응답하세요:
+{{
+  "recommendations": [
+    {{
+      "movement_id": "모션_ID (카탈로그 ID 중 하나)",
+      "reason": "한국어 추천 이유 (예: 충격적인 팩트를 밝히는 후킹 구간이므로 시선을 단숨에 사로잡는 빠른 접근이 효과적입니다)",
+      "suggested_video_prompt": "camera: ... movement: ... speed: ... framing: ... end: ..."
+    }}
+  ]
+}}
+"""
+            model_name = "gpt-4o-mini" if "mini" in settings.openai_analysis_model else settings.openai_analysis_model
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+            )
+            content = response.choices[0].message.content.strip()
+            if content.startswith("```json"):
+                content = content[7:-3].strip()
+            elif content.startswith("```"):
+                content = content[3:-3].strip()
+
+            data = json.loads(content)
+            for item in data.get("recommendations", []):
+                m_id = item.get("movement_id", "")
+                meta = CORE_MOVEMENTS_MAP.get(m_id)
+                recommendations.append(
+                    MotionRecommendationItem(
+                        movement_id=m_id,
+                        movement_name=meta.name if meta else m_id,
+                        category=meta.category if meta else "기타",
+                        reason=item.get("reason", ""),
+                        suggested_video_prompt=item.get("suggested_video_prompt", ""),
+                    )
+                )
+        except Exception:
+            recommendations = []
+
+    # API 미설정 또는 오류 시 쇼츠 문맥 스마트 폴백
+    if not recommendations:
+        if scene_id == 1:
+            fallback_items = [
+                ("crash_zoom_in", "도입부 0~3초 상식 충돌 후킹을 위해 시선을 단숨에 사로잡는 빠른 줌인이 가장 효과적입니다."),
+                ("slow_zoom_in", "호기심을 서서히 증폭시키며 핵심 피사체로 몰입감을 높여줍니다."),
+            ]
+        elif scene_id == len(raw_scenes):
+            fallback_items = [
+                ("drone_pull_back", "결말 및 압도적 총량 체감을 위해 광활한 시야를 열어주는 풀백 연출이 최적입니다."),
+                ("slow_zoom_out", "전체 전경과 실체를 드러내며 깊은 여운을 남깁니다."),
+            ]
+        else:
+            fallback_items = [
+                ("orbit", "피사체의 3D 입체감과 공예적 질감을 돋보이게 하는 쇼츠 대표 연출입니다."),
+                ("push_past", "전경을 스쳐 지나가며 다음 공간으로 시선을 자연스럽게 인계합니다."),
+                ("tracking_shot", "피사체의 움직임과 반응 속도에 맞추어 역동성을 부여합니다."),
+            ]
+
+        for m_id, r_reason in fallback_items:
+            meta = CORE_MOVEMENTS_MAP.get(m_id)
+            recommendations.append(
+                MotionRecommendationItem(
+                    movement_id=m_id,
+                    movement_name=meta.name if meta else m_id,
+                    category=meta.category if meta else "기타",
+                    reason=r_reason,
+                    suggested_video_prompt=meta.example_prompt if meta else f"camera: {m_id}. smooth cinematic continuous movement.",
+                )
+            )
+
+    return RecommendMotionResponse(
+        scene_id=scene_id,
+        narration=narration,
+        current_motion_id=current_motion_id,
+        recommendations=recommendations,
+        available_movements=CORE_CAMERA_MOVEMENTS,
+    )
+
+
+def apply_motion_to_scene(
+    project_dir: Path,
+    scene_id: int,
+    movement_id: str,
+    custom_instruction: str = "",
+    settings: AppSettings | None = None,
+) -> VideoSceneItem:
+    video_scenes_path = project_dir / VIDEO_SCENES_FILENAME
+    if not video_scenes_path.exists():
+        raise FileNotFoundError("video_scenes.json이 없습니다.")
+
+    raw_scenes = json.loads(video_scenes_path.read_text(encoding="utf-8"))
+    target_idx = None
+    target_scene = None
+    for idx, sc in enumerate(raw_scenes):
+        if sc.get("scene_id") == scene_id:
+            target_idx = idx
+            target_scene = sc
+            break
+
+    if target_scene is None or target_idx is None:
+        raise ValueError(f"Scene {scene_id}를 찾을 수 없습니다.")
+
+    meta = CORE_MOVEMENTS_MAP.get(movement_id)
+    movement_name = meta.name if meta else movement_id
+
+    new_prompt = ""
+    if settings and settings.openai_api_key:
+        try:
+            client = OpenAI(api_key=settings.openai_api_key)
+            prompt = f"""당신은 AI 쇼츠 영상 디렉터입니다.
+현재 씬에 지정된 카메라 모션 '{movement_name}'(ID: {movement_id})을 적용하여, aicameramovements.com 표준 영문 4단 문법으로 완성도 높은 비디오 프롬프트를 작성하세요.
+
+[현재 씬 정보]
+- 씬 번호: Scene {scene_id}
+- 대본 나레이션: "{target_scene.get('narration', '')}"
+- 시작 이미지 프롬프트: "{target_scene.get('start_image_prompt', '')}"
+- 선택된 카메라 모션: {movement_name} ({meta.summary if meta else ''})
+- 모션 문법 참고: {meta.prompt_syntax if meta else ''}
+- 모션 예시 참고: {meta.example_prompt if meta else ''}
+- 추가 사용자 요청사항: "{custom_instruction}"
+
+[video_prompt 작성 공식 (영문)]
+`camera: {movement_name}. movement: ... speed: ... framing: ... end: ... no jump cuts.`
+
+반드시 다음 pure JSON으로만 응답하세요:
+{{
+  "video_prompt": "완성된 영문 video_prompt"
+}}
+"""
+            model_name = "gpt-4o-mini" if "mini" in settings.openai_analysis_model else settings.openai_analysis_model
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+            )
+            content = response.choices[0].message.content.strip()
+            if content.startswith("```json"):
+                content = content[7:-3].strip()
+            elif content.startswith("```"):
+                content = content[3:-3].strip()
+            res_data = json.loads(content)
+            new_prompt = res_data.get("video_prompt", "").strip()
+        except Exception:
+            new_prompt = ""
+
+    if not new_prompt:
+        new_prompt = meta.example_prompt if meta else f"camera: {movement_name}. smooth cinematic continuous movement."
+
+    target_scene["video_prompt"] = new_prompt
+
+    target_scene["camera_movement"] = movement_id
+    raw_scenes[target_idx] = target_scene
+    video_scenes_path.write_text(json.dumps(raw_scenes, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return VideoSceneItem.model_validate(target_scene)
+
+
+def update_project_visual_style(
+    project_dir: Path,
+    visual_style_id: str,
+    regenerate_prompts: bool = False,
+    settings: AppSettings | None = None,
+) -> tuple[ConceptKit, list[VideoSceneItem] | None]:
+    style = get_visual_style(visual_style_id)
+    concept_kit_file = project_dir / CONCEPT_KIT_FILENAME
+    ck_data = {}
+    if concept_kit_file.exists():
+        try:
+            ck_data = json.loads(concept_kit_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    ck_data["visual_style_id"] = style.id
+    ck_data["visual_style"] = style.default_concept_style
+    concept_kit = ConceptKit.model_validate(ck_data)
+    concept_kit_file.write_text(json.dumps(concept_kit.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
+
+    video_scenes = None
+    if regenerate_prompts and settings:
+        concept_kit, video_scenes = generate_concept_kit_and_video_scenes(
+            project_dir, settings, visual_style_id=style.id
+        )
+
+    return concept_kit, video_scenes
+
+
+def _get_project_title(project_dir: Path) -> str | None:
+    pj_file = project_dir / "project.json"
+    if pj_file.exists():
+        try:
+            p_data = json.loads(pj_file.read_text(encoding="utf-8"))
+            title = p_data.get("project_title", "")
+            if title and title.strip() and title.strip() != "untitled":
+                return title.strip()
+        except Exception:
+            pass
+    return None
+
+
+def save_thumbnail_image(project_dir: Path, image_bytes: bytes) -> Path:
+    from app.production.renderer import render_thumbnail_image
+
+    bg_path = project_dir / THUMBNAIL_BG_FILENAME
+    bg_path.write_bytes(image_bytes)
+    target_path = project_dir / THUMBNAIL_FILENAME
+
+    title = _get_project_title(project_dir)
+    try:
+        render_thumbnail_image(project_dir, title=title, source_image=bg_path)
+    except Exception:
+        shutil.copy2(bg_path, target_path)
+    return target_path
+
+
+def set_thumbnail_from_scene(project_dir: Path, scene_id: int = 1) -> Path:
+    from app.production.renderer import render_thumbnail_image
+
+    scenes_dir = project_dir / SCENES_DIR_NAME
+    scene_img = scenes_dir / f"scene_{scene_id:02d}_start.png"
+    if not scene_img.exists():
+        raise FileNotFoundError(f"Scene {scene_id}의 시작 이미지가 없습니다.")
+    bg_path = project_dir / THUMBNAIL_BG_FILENAME
+    shutil.copy2(scene_img, bg_path)
+    target_path = project_dir / THUMBNAIL_FILENAME
+
+    title = _get_project_title(project_dir)
+    try:
+        render_thumbnail_image(project_dir, title=title, source_image=bg_path)
+    except Exception:
+        shutil.copy2(bg_path, target_path)
+    return target_path
+
+
+def delete_thumbnail_image(project_dir: Path) -> None:
+    for name in [THUMBNAIL_FILENAME, THUMBNAIL_BG_FILENAME]:
+        p = project_dir / name
+        if p.exists():
+            try:
+                p.unlink()
+            except Exception:
+                pass
+
+
+def generate_thumbnail_image_for_project(
+    project_dir: Path,
+    settings: AppSettings,
+    model_name: str = "nano_banana_pro",
+    prompt: str | None = None,
+) -> Path:
+    from app.production.renderer import render_thumbnail_image
+
+    title = _get_project_title(project_dir)
+    final_prompt = prompt.strip() if prompt and prompt.strip() else ""
+    if not final_prompt:
+        concept_kit_file = project_dir / CONCEPT_KIT_FILENAME
+        visual_style = "Cute professional claymation infographic, vibrant colors, clean lighting"
+        if concept_kit_file.exists():
+            try:
+                ck = json.loads(concept_kit_file.read_text(encoding="utf-8"))
+                visual_style = ck.get("visual_style", visual_style)
+            except Exception:
+                pass
+
+        if title:
+            final_prompt = f"YouTube shorts high-contrast clickbait cover thumbnail about '{title}', {visual_style}, 9:16 vertical portrait, dramatic curiosity, bold composition"
+        else:
+            final_prompt = f"YouTube shorts high-contrast clickbait cover thumbnail, {visual_style}, 9:16 vertical portrait, dramatic curiosity, bold composition"
+
+    bg_path = project_dir / THUMBNAIL_BG_FILENAME
+    target_path = project_dir / THUMBNAIL_FILENAME
+
+    if model_name != "dall-e-3":
+        try:
+            image_url = _run_higgsfield_generate(
+                job_type=model_name or "nano_banana_pro",
+                prompt=final_prompt,
+                aspect_ratio="9:16",
+            )
+            resp = httpx.get(image_url, timeout=60.0)
+            resp.raise_for_status()
+            bg_path.write_bytes(resp.content)
+            try:
+                render_thumbnail_image(project_dir, title=title, source_image=bg_path)
+            except Exception:
+                shutil.copy2(bg_path, target_path)
+            return target_path
+        except Exception:
+            pass
+
+    from app.references.openai_client import create_openai_client
+    client = create_openai_client(settings)
+    res = client.images.generate(
+        model="dall-e-3",
+        prompt=final_prompt,
+        size="1024x1792",
+        quality="standard",
+        n=1,
+    )
+    img_url = res.data[0].url
+    if not img_url:
+        raise ValueError("DALL-E 3에서 이미지 URL을 받지 못했습니다.")
+    resp = httpx.get(img_url, timeout=60.0)
+    resp.raise_for_status()
+    bg_path.write_bytes(resp.content)
+    try:
+        render_thumbnail_image(project_dir, title=title, source_image=bg_path)
+    except Exception:
+        shutil.copy2(bg_path, target_path)
+    return target_path
 
 

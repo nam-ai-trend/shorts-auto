@@ -76,14 +76,14 @@ export function CandidateDraftsPanel({
           <strong>기획 방향 및 피드백 (선택 또는 자유 입력)</strong>
         </label>
         <p className="muted" style={{ margin: "0.25rem 0 0.5rem" }}>
-          💡 분석 리포트의 5가지 추천 주제 중 원하는 번호를 고르거나, <strong>팩트체크할 주제, 강조할 구체적 숫자, 체감 비유(올림픽 수영장 N개 등)</strong>를 자유롭게 적어주세요.
+          💡 분석 리포트의 5가지 추천 주제 중 원하는 번호를 고르거나, <strong>팩트체크할 주제, 강조할 핵심 과학 원리 및 체감 환산 수치</strong>를 자유롭게 적어주세요.
         </p>
         <textarea
           id="draft-generation-feedback"
           className="feedback-input"
           disabled={isBusy}
           onChange={(event) => setFeedback(event.target.value)}
-          placeholder="예: 1번 추천 주제(개미가 하루 동안 옮기는 무게)로 해줘. 실제 과학 팩트와 충격적인 환산 수치(63빌딩 무게 등)를 넣어서 도파민 터지게 써줘."
+          placeholder="예: 1번 추천 주제로 해줘. 도입부에 '이거 모르면 손해' 같은 의문형 훅을 넣고, 실제 과학 팩트와 알기 쉬운 사물 비교(스마트폰 무게, 여객기 등)를 넣어줘."
           rows={3}
           value={feedback}
           style={{ width: "100%", minHeight: "92px", boxSizing: "border-box" }}
@@ -223,41 +223,53 @@ export function CandidateDraftsPanel({
                       </div>
                     )}
 
-                    {candidate.tags && (
-                      <div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                          <span style={{ fontSize: "12px", fontWeight: "bold", color: "#1e293b" }}>🏷️ 해시태그:</span>
-                          <button
-                            type="button"
-                            onClick={() => copyText(`${candidate.candidate_id}-tags`, candidate.tags!)}
-                            style={{ fontSize: "11px", padding: "2px 8px", cursor: "pointer", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#ffffff" }}
-                          >
-                            {copiedKey === `${candidate.candidate_id}-tags` ? "✓ 복사됨" : "📋 태그 복사"}
-                          </button>
+                    {candidate.tags && (() => {
+                      const displayTags = candidate.tags
+                        .split(/\s+/)
+                        .filter((t) => t && !["#쇼츠", "#shorts", "쇼츠", "shorts"].includes(t))
+                        .join(" ");
+                      return (
+                        <div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                            <span style={{ fontSize: "12px", fontWeight: "bold", color: "#1e293b" }}>🏷️ 해시태그:</span>
+                            <button
+                              type="button"
+                              onClick={() => copyText(`${candidate.candidate_id}-tags`, displayTags)}
+                              style={{ fontSize: "11px", padding: "2px 8px", cursor: "pointer", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#ffffff" }}
+                            >
+                              {copiedKey === `${candidate.candidate_id}-tags` ? "✓ 복사됨" : "📋 태그 복사"}
+                            </button>
+                          </div>
+                          <p style={{ margin: 0, fontSize: "12px", color: "#0284c7", fontWeight: 600, background: "#ffffff", padding: "6px 8px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                            {displayTags}
+                          </p>
                         </div>
-                        <p style={{ margin: 0, fontSize: "12px", color: "#0284c7", fontWeight: 600, background: "#ffffff", padding: "6px 8px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
-                          {candidate.tags}
-                        </p>
-                      </div>
-                    )}
+                      );
+                    })()}
 
-                    {candidate.keywords && (
-                      <div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                          <span style={{ fontSize: "12px", fontWeight: "bold", color: "#1e293b" }}>🔑 키워드:</span>
-                          <button
-                            type="button"
-                            onClick={() => copyText(`${candidate.candidate_id}-keywords`, candidate.keywords!)}
-                            style={{ fontSize: "11px", padding: "2px 8px", cursor: "pointer", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#ffffff" }}
-                          >
-                            {copiedKey === `${candidate.candidate_id}-keywords` ? "✓ 복사됨" : "📋 키워드 복사"}
-                          </button>
+                    {candidate.keywords && (() => {
+                      const mandatory = ["과학쇼츠", "쇼츠", "과학지식"];
+                      const parts = candidate.keywords.split(",").map((p) => p.trim().replace(/^#/, "")).filter(Boolean);
+                      const filtered = parts.filter((p) => !mandatory.includes(p));
+                      const displayKeywords = [...filtered, ...mandatory].join(", ");
+                      return (
+                        <div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                            <span style={{ fontSize: "12px", fontWeight: "bold", color: "#1e293b" }}>🔑 키워드:</span>
+                            <button
+                              type="button"
+                              onClick={() => copyText(`${candidate.candidate_id}-keywords`, displayKeywords)}
+                              style={{ fontSize: "11px", padding: "2px 8px", cursor: "pointer", borderRadius: "4px", border: "1px solid #cbd5e1", background: "#ffffff" }}
+                            >
+                              {copiedKey === `${candidate.candidate_id}-keywords` ? "✓ 복사됨" : "📋 키워드 복사"}
+                            </button>
+                          </div>
+                          <p style={{ margin: 0, fontSize: "12px", color: "#475569", background: "#ffffff", padding: "6px 8px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                            {displayKeywords}
+                          </p>
                         </div>
-                        <p style={{ margin: 0, fontSize: "12px", color: "#475569", background: "#ffffff", padding: "6px 8px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
-                          {candidate.keywords}
-                        </p>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 )}
               </article>

@@ -4,6 +4,7 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -14,6 +15,8 @@ RAW_STT_FILENAME = "raw_stt.json"
 SCENE_DATA_FILENAME = "scene_data.json"
 VIDEO_SCENES_FILENAME = "video_scenes.json"
 SCENES_DIR_NAME = "scenes"
+THUMBNAIL_FILENAME = "thumbnail.png"
+THUMBNAIL_BG_FILENAME = "thumbnail_bg.png"
 
 
 def split_subtitles_for_shorts(
@@ -200,10 +203,92 @@ def _get_video_duration(video_path: Path) -> float:
         return 6.0
 
 
+def render_thumbnail_image(
+    project_dir: Path,
+    title: str | None = None,
+    source_image: Path | None = None,
+) -> Path:
+    """
+    썸네일 배경 이미지 위에 유튜브 쇼츠 스타일의 볼드 타이틀 카드를 합성하여
+    최종 thumbnail.png 이미지를 렌더링합니다.
+    """
+    repo_root = find_repo_root()
+    target_thumb = project_dir / THUMBNAIL_FILENAME
+    thumb_bg = project_dir / THUMBNAIL_BG_FILENAME
+
+    bg_img = source_image
+    if not bg_img or not bg_img.exists() or bg_img.stat().st_size == 0:
+        if thumb_bg.exists() and thumb_bg.stat().st_size > 0:
+            bg_img = thumb_bg
+        elif target_thumb.exists() and target_thumb.stat().st_size > 0:
+            bg_img = target_thumb
+        else:
+            scene_1_img = project_dir / SCENES_DIR_NAME / "scene_01_start.png"
+            if scene_1_img.exists() and scene_1_img.stat().st_size > 0:
+                bg_img = scene_1_img
+
+    if not bg_img or not bg_img.exists():
+        raise FileNotFoundError("썸네일을 합성할 배경 이미지가 없습니다.")
+
+    if not thumb_bg.exists() and bg_img.resolve() != thumb_bg.resolve():
+        try:
+            shutil.copy2(bg_img, thumb_bg)
+        except Exception:
+            pass
+
+    bg_tmp = project_dir / "_thumb_bg.png"
+    if bg_img.resolve() != bg_tmp.resolve():
+        shutil.copy2(bg_img, bg_tmp)
+
+    final_title = title.strip() if title and title.strip() else None
+    if not final_title:
+        try:
+            pj_path = project_dir / "project.json"
+            if pj_path.exists():
+                pj_data = json.loads(pj_path.read_text(encoding="utf-8"))
+                p_title = pj_data.get("project_title")
+                if p_title and p_title.strip() and p_title.strip() != "untitled":
+                    final_title = p_title.strip()
+        except Exception:
+            pass
+
+    rel_image = bg_tmp.resolve().relative_to(repo_root.resolve()).as_posix()
+    props = {
+        "imageSrc": rel_image,
+        "title": final_title,
+    }
+
+    tmp_dir = project_dir / SCENES_DIR_NAME / "_render_tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    props_file = tmp_dir / "thumbnail_props.json"
+    props_file.write_text(json.dumps(props, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    remotion_thumbnail_script = repo_root / "apps" / "remotion" / "render_thumbnail.mjs"
+    cmd = [
+        "node",
+        str(remotion_thumbnail_script.resolve()),
+        f"--props={props_file.resolve()}",
+        f"--output={target_thumb.resolve()}",
+    ]
+
+    res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(repo_root))
+    if res.returncode != 0:
+        shutil.copy2(bg_tmp, target_thumb)
+
+    if bg_tmp.exists():
+        try:
+            bg_tmp.unlink()
+        except Exception:
+            pass
+
+    return target_thumb
+
+
 def render_final_shorts(
     project_dir: Path,
     settings: AppSettings,
     title: str | None = None,
+    thumbnail_duration_frames: int = 15,
 ) -> Path:
     """
     모든 씬의 비디오를 나레이션 시간(target_duration)에 맞춰 배속 조절(setpts)하여 동기화하고,
@@ -320,6 +405,22 @@ def render_final_shorts(
     scene_data_path = project_dir / SCENE_DATA_FILENAME
     raw_stt_path = project_dir / RAW_STT_FILENAME
 
+    stt_blocks: list[dict] = []
+    if raw_stt_path.exists():
+        try:
+            stt = json.loads(raw_stt_path.read_text(encoding="utf-8"))
+            for item in stt:
+                txt = str(item.get("text", "")).strip()
+                if txt:
+                    stt_blocks.append({
+                        "start": float(item.get("start", 0.0)),
+                        "end": float(item.get("end", 0.0)),
+                        "text": txt,
+                    })
+        except Exception:
+            stt_blocks = []
+
+    scene_blocks: list[dict] = []
     if scene_data_path.exists():
         try:
             sc_raw = json.loads(scene_data_path.read_text(encoding="utf-8"))
@@ -327,7 +428,7 @@ def render_final_shorts(
                 for tb in item.get("text_blocks", []):
                     txt = str(tb.get("text", "")).strip()
                     if txt:
-                        raw_subtitles.append({
+                        scene_blocks.append({
                             "start": float(tb.get("start", 0.0)),
                             "end": float(tb.get("end", 0.0)),
                             "text": txt,
@@ -335,27 +436,23 @@ def render_final_shorts(
                 if not item.get("text_blocks"):
                     txt = str(item.get("subtitle") or item.get("text") or item.get("narration") or "").strip()
                     if txt:
-                        raw_subtitles.append({
+                        scene_blocks.append({
                             "start": float(item.get("start", 0.0)),
                             "end": float(item.get("end", 0.0)),
                             "text": txt,
                         })
         except Exception:
-            raw_subtitles = []
+            scene_blocks = []
 
-    if not raw_subtitles and raw_stt_path.exists():
-        try:
-            stt = json.loads(raw_stt_path.read_text(encoding="utf-8"))
-            for item in stt:
-                txt = str(item.get("text", "")).strip()
-                if txt:
-                    raw_subtitles.append({
-                        "start": float(item.get("start", 0.0)),
-                        "end": float(item.get("end", 0.0)),
-                        "text": txt,
-                    })
-        except Exception:
-            raw_subtitles = []
+    # 실제 오디오 STT 세그먼트와 scene_data 세그먼트 중 싱크 신뢰성이 높은 데이터 선택:
+    # scene_blocks 개수가 stt_blocks 개수와 일치하고 정상일 때는 scene_blocks 사용,
+    # 만약 scene_blocks 개수가 비정상적으로 누락되었거나 없으면 실제 음성 타임스탬프 원천인 stt_blocks 최우선 사용!
+    if scene_blocks and len(scene_blocks) >= len(stt_blocks):
+        raw_subtitles = scene_blocks
+    elif stt_blocks:
+        raw_subtitles = stt_blocks
+    else:
+        raw_subtitles = scene_blocks
 
     # 긴 문장은 쇼츠 규격(1줄 8~15자 내외)에 맞춰 의미 단위 분할 및 시간 비례 배분
     subtitles_list = split_subtitles_for_shorts(raw_subtitles, max_one_line=16, target_chunk_max=15)
@@ -392,6 +489,46 @@ def render_final_shorts(
         except Exception:
             pass
 
+
+
+    # 썸네일 이미지 확인 및 자동 Fallback & 타이틀 텍스트 합성:
+    # 씬 1번 시작 이미지가 갱신되었거나 썸네일 배경보다 최신인 경우 자동으로 썸네일 배경 동기화
+    thumb_path = project_dir / THUMBNAIL_FILENAME
+    thumb_bg = project_dir / THUMBNAIL_BG_FILENAME
+    scene_1_img = project_dir / SCENES_DIR_NAME / "scene_01_start.png"
+
+    if scene_1_img.exists() and scene_1_img.stat().st_size > 0:
+        # thumb_bg가 없거나 scene_1_img가 더 최근에 생성/수정된 경우 최신 씬 1번 이미지로 동기화
+        if not thumb_bg.exists() or scene_1_img.stat().st_mtime > thumb_bg.stat().st_mtime:
+            try:
+                shutil.copy2(scene_1_img, thumb_bg)
+            except Exception:
+                pass
+
+    source_bg = None
+    if thumb_bg.exists() and thumb_bg.stat().st_size > 0:
+        source_bg = thumb_bg
+    elif thumb_path.exists() and thumb_path.stat().st_size > 0:
+        source_bg = thumb_path
+    elif scene_1_img.exists() and scene_1_img.stat().st_size > 0:
+        source_bg = scene_1_img
+
+    if source_bg:
+        try:
+            render_thumbnail_image(project_dir, title=final_title, source_image=source_bg)
+        except Exception:
+            if not thumb_path.exists() and source_bg != thumb_path:
+                try:
+                    shutil.copy2(source_bg, thumb_path)
+                except Exception:
+                    pass
+
+    rel_thumbnail = (
+        thumb_path.resolve().relative_to(repo_root.resolve()).as_posix()
+        if (thumb_path.exists() and thumb_path.stat().st_size > 0)
+        else None
+    )
+
     remotion_props = {
         "videoSrc": rel_video,
         "audioSrc": rel_audio,
@@ -400,6 +537,8 @@ def render_final_shorts(
         "subtitles": subtitles_list,
         "durationInFrames": max(24, total_frames),
         "title": final_title,
+        "thumbnailSrc": rel_thumbnail,
+        "thumbnailDurationFrames": max(1, thumbnail_duration_frames) if rel_thumbnail else 0,
     }
 
     props_file = tmp_dir / "remotion_props.json"

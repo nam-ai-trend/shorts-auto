@@ -48,4 +48,38 @@ describe("FinalScriptPanel", () => {
 
     expect(onFinalize).toHaveBeenCalledWith("더 짧게");
   });
+
+  it("allows direct script editing and saves modified script", async () => {
+    const user = userEvent.setup();
+    const onFinalize = vi.fn();
+    const onUpdateFinalScript = vi.fn();
+
+    render(
+      <FinalScriptPanel
+        finalScript="기존 대본입니다."
+        isBusy={false}
+        onFinalize={onFinalize}
+        onUpdateFinalScript={onUpdateFinalScript}
+        selectedCandidate={selectedCandidate}
+        ttsValidation={null}
+      />
+    );
+
+    const editButton = screen.getByRole("button", { name: /대본 직접 수정하기/i });
+    expect(editButton).toBeInTheDocument();
+
+    await user.click(editButton);
+
+    const textarea = screen.getByRole("textbox", { name: /Direct Script Edit/i });
+    expect(textarea).toHaveValue("기존 대본입니다.");
+
+    await user.clear(textarea);
+    await user.type(textarea, "직접 수정한 대본입니다.");
+
+    const saveButton = screen.getByRole("button", { name: /수정한 대본 그대로 최종 확정/i });
+    await user.click(saveButton);
+
+    expect(onUpdateFinalScript).toHaveBeenCalledWith("직접 수정한 대본입니다.");
+  });
 });
+

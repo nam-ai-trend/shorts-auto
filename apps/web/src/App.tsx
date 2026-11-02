@@ -4,6 +4,7 @@ import {
   addDirectReference,
   alignSubtitlesAndScenes,
   createProject,
+  deleteThumbnail,
   extractReferenceAudio,
   fetchProductionState,
   fetchScriptsState,
@@ -15,6 +16,7 @@ import {
   generateConcepts,
   generateSceneImage,
   generateSceneVideo,
+  generateThumbnail,
   passContinuityToNext,
   renderShorts,
   generateScriptCandidates,
@@ -25,9 +27,14 @@ import {
   runReferenceStt,
   searchReferences,
   selectScriptCandidate,
+  applySceneMotion,
   selectReference,
+  setThumbnailFromScene,
   updateProject,
-  updateScenePrompts
+  updateScenePrompts,
+  updateFinalScript,
+  updateVisualStyle,
+  uploadThumbnail
 } from "./api";
 import { CandidateDraftsPanel } from "./components/CandidateDraftsPanel";
 import { FinalScriptPanel } from "./components/FinalScriptPanel";
@@ -373,6 +380,30 @@ export default function App() {
     });
   }
 
+  async function handleUpdateFinalScript(updatedScript: string) {
+    if (!selectedProject) {
+      return;
+    }
+    try {
+      await updateFinalScript(selectedProject.project_id, updatedScript);
+      const [project, state, prod] = await Promise.all([
+        getProject(selectedProject.project_id),
+        fetchScriptsState(selectedProject.project_id),
+        fetchProductionState(selectedProject.project_id)
+      ]);
+      setSelectedProject(project);
+      setProjects((current) =>
+        current.map((item) => (item.project_id === project.project_id ? project : item))
+      );
+      setScriptsState(state);
+      setProductionState(prod);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "대본 저장 및 확정에 실패했습니다.");
+      throw reason;
+    }
+  }
+
   async function handleGenerateProduction() {
     if (!selectedProject) {
       return;
@@ -395,13 +426,13 @@ export default function App() {
     }
   }
 
-  async function handleGenerateConcepts() {
+  async function handleGenerateConcepts(visualStyleId?: string) {
     if (!selectedProject) {
       return;
     }
     setIsProductionBusy(true);
     try {
-      const updated = await generateConcepts(selectedProject.project_id);
+      const updated = await generateConcepts(selectedProject.project_id, visualStyleId);
       setProductionState(updated);
       const project = await getProject(selectedProject.project_id);
       setSelectedProject(project);
@@ -411,6 +442,29 @@ export default function App() {
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "비디오 씬 및 연속성 설계에 실패했습니다.");
+    } finally {
+      setIsProductionBusy(false);
+    }
+  }
+
+  async function handleUpdateVisualStyle(visualStyleId: string, regeneratePrompts: boolean = false) {
+    if (!selectedProject) {
+      return;
+    }
+    if (regeneratePrompts) {
+      setIsProductionBusy(true);
+    }
+    try {
+      const res = await updateVisualStyle(selectedProject.project_id, visualStyleId, regeneratePrompts);
+      setProductionState(res.production);
+      const project = await getProject(selectedProject.project_id);
+      setSelectedProject(project);
+      setProjects((current) =>
+        current.map((item) => (item.project_id === project.project_id ? project : item))
+      );
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "비주얼 스타일 변경에 실패했습니다.");
     } finally {
       setIsProductionBusy(false);
     }
@@ -427,6 +481,9 @@ export default function App() {
         if (!prev || !prev.video_scenes || !updated.video_scenes) return updated;
         const prevScenes = prev.video_scenes;
         const mergedScenes: readonly VideoSceneItem[] = updated.video_scenes.map((uScene) => {
+          if (uScene.scene_id === sceneId) {
+            return uScene;
+          }
           const pScene = prevScenes.find((p) => p.scene_id === uScene.scene_id);
           return {
             ...uScene,
@@ -479,6 +536,9 @@ export default function App() {
         if (!prev || !prev.video_scenes || !updated.video_scenes) return updated;
         const prevScenes = prev.video_scenes;
         const mergedScenes: readonly VideoSceneItem[] = updated.video_scenes.map((uScene) => {
+          if (uScene.scene_id === sceneId) {
+            return uScene;
+          }
           const pScene = prevScenes.find((p) => p.scene_id === uScene.scene_id);
           return {
             ...uScene,
@@ -569,6 +629,28 @@ export default function App() {
     }
   }
 
+  async function handleApplySceneMotion(
+    sceneId: number,
+    movementId: string,
+    customInstruction?: string
+  ) {
+    if (!selectedProject) {
+      return;
+    }
+    try {
+      const res = await applySceneMotion(
+        selectedProject.project_id,
+        sceneId,
+        movementId,
+        customInstruction
+      );
+      setProductionState(res.production);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : `Scene ${sceneId} 카메라 모션 적용 실패`);
+    }
+  }
+
   async function handleRenderShorts(title?: string) {
     if (!selectedProject) {
       return;
@@ -605,6 +687,62 @@ export default function App() {
       );
     } catch {
       // 타이핑 도중 실시간 저장은 실패하더라도 조용히 무시 (화면 입력 보존)
+    }
+  }
+
+  async function handleUploadThumbnail(file: File) {
+    if (!selectedProject) return;
+    setIsProductionBusy(true);
+    try {
+      const updated = await uploadThumbnail(selectedProject.project_id, file);
+      setProductionState(updated);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "썸네일 이미지 업로드에 실패했습니다.");
+    } finally {
+      setIsProductionBusy(false);
+    }
+  }
+
+  async function handleGenerateThumbnail(model: string = "nano_banana_pro", prompt?: string) {
+    if (!selectedProject) return;
+    setIsProductionBusy(true);
+    try {
+      const updated = await generateThumbnail(selectedProject.project_id, model, prompt);
+      setProductionState(updated);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "AI 썸네일 생성에 실패했습니다.");
+    } finally {
+      setIsProductionBusy(false);
+    }
+  }
+
+  async function handleSetThumbnailFromScene(sceneId: number = 1) {
+    if (!selectedProject) return;
+    setIsProductionBusy(true);
+    try {
+      const updated = await setThumbnailFromScene(selectedProject.project_id, sceneId);
+      setProductionState(updated);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : `Scene ${sceneId} 이미지를 썸네일로 설정하는 데 실패했습니다.`);
+    } finally {
+      setIsProductionBusy(false);
+    }
+  }
+
+  async function handleDeleteThumbnail() {
+    if (!selectedProject) return;
+    setIsProductionBusy(true);
+    try {
+      const updated = await deleteThumbnail(selectedProject.project_id);
+      setProductionState(updated);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "썸네일 삭제에 실패했습니다.");
+    } finally {
+      setIsProductionBusy(false);
     }
   }
 
@@ -702,6 +840,7 @@ export default function App() {
                 finalScript={scriptsState?.final_script ?? null}
                 isBusy={isScriptBusy}
                 onFinalize={handleFinalizeScript}
+                onUpdateFinalScript={handleUpdateFinalScript}
                 selectedCandidate={scriptsState?.selected_candidate ?? null}
                 ttsValidation={scriptsState?.tts_validation ?? null}
               />
@@ -716,12 +855,18 @@ export default function App() {
                 onPassContinuity={handlePassContinuity}
                 onRegenerateWithFeedback={handleRegenerateSceneWithFeedback}
                 onUpdateScenePrompts={handleUpdateScenePrompts}
+                onApplySceneMotion={handleApplySceneMotion}
+                onUpdateVisualStyle={handleUpdateVisualStyle}
                 onRenderShorts={handleRenderShorts}
                 productionState={productionState}
                 projectId={selectedProject.project_id}
                 projectTitle={selectedProject.project_title}
                 videoTitle={videoTitle}
                 onTitleChange={handleTitleChange}
+                onUploadThumbnail={handleUploadThumbnail}
+                onGenerateThumbnail={handleGenerateThumbnail}
+                onSetThumbnailFromScene={handleSetThumbnailFromScene}
+                onDeleteThumbnail={handleDeleteThumbnail}
               />
               <SettingsPanel settings={settings} />
 

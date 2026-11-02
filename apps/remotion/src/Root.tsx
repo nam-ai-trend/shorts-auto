@@ -1,6 +1,7 @@
 import React from "react";
-import { Composition } from "remotion";
+import { Composition, Still } from "remotion";
 import { ShortsComposition } from "./ShortsComposition";
+import { ThumbnailComposition } from "./ThumbnailComposition";
 import type { ShortsProps } from "./types";
 
 export const RemotionRoot: React.FC = () => {
@@ -28,6 +29,16 @@ export const RemotionRoot: React.FC = () => {
             durationInFrames: Math.max(24, frames),
             props,
           };
+        }}
+      />
+      <Still
+        id="ShortsThumbnail"
+        component={ThumbnailComposition as any}
+        width={1080}
+        height={1920}
+        defaultProps={{
+          imageSrc: "",
+          title: "",
         }}
       />
     </>

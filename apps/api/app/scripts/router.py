@@ -32,12 +32,14 @@ from app.scripts.generation import (
     build_final_script_prompt,
     build_final_script_state,
     extract_final_script,
+    extract_verbatim_script_from_feedback,
     validate_candidate_payload,
 )
 from app.scripts.models import (
     FinalizeScriptRequest,
     GenerateCandidatesRequest,
     SelectScriptCandidateRequest,
+    UpdateFinalScriptRequest,
 )
 
 
@@ -184,9 +186,12 @@ def create_scripts_router(
         job_id: str | None = None
         try:
             path = project_dir(outputs, project_id)
-            selected = read_script_state(path).selected_candidate
+            script_state = read_script_state(path)
+            selected = script_state.selected_candidate
             if selected is None:
                 raise HTTPException(status_code=400, detail="Select a script candidate before finalizing")
+
+            current_script = script_state.final_script
 
             job = append_job(
                 outputs,
@@ -199,9 +204,13 @@ def create_scripts_router(
             )
             job_id = job.job_id
             update_job_state(outputs, project_id, job.job_id, "running", "Finalizing TTS-ready script")
-            client = script_client_factory(settings.openai_api_key, settings.openai_analysis_model)
-            response = client.analyze(build_final_script_prompt(selected, payload.feedback))
-            final_script = extract_final_script(response)
+            verbatim = extract_verbatim_script_from_feedback(payload.feedback)
+            if verbatim:
+                final_script = verbatim
+            else:
+                client = script_client_factory(settings.openai_api_key, settings.openai_analysis_model)
+                response = client.analyze(build_final_script_prompt(selected, payload.feedback, current_final_script=current_script))
+                final_script = extract_final_script(response)
             state = build_final_script_state(selected.candidate_id, payload.feedback, final_script)
             write_final_script_state(path, state)
 
@@ -243,5 +252,51 @@ def create_scripts_router(
             message = str(exc) or exc.__class__.__name__
             fail_job(outputs, project_id, job_id, message)
             raise HTTPException(status_code=400, detail=message) from exc
+
+    @router.put("/final")
+    def update_final_script_endpoint(
+        project_id: str,
+        payload: UpdateFinalScriptRequest,
+        outputs: Path = Depends(outputs_dir_provider),
+        settings: AppSettings = Depends(settings_provider),
+    ):
+        try:
+            path = project_dir(outputs, project_id)
+            script_state = read_script_state(path)
+            candidate_id = script_state.selected_candidate.candidate_id if script_state.selected_candidate else "manual"
+
+            state = build_final_script_state(candidate_id, script_state.feedback, payload.final_script)
+            write_final_script_state(path, state)
+
+            project = read_project(outputs, project_id)
+            project.generated_files["final_script"] = FINAL_SCRIPT_FILE
+            project.generated_files["final_script_state"] = FINAL_SCRIPT_STATE_FILE
+
+            project.current_step = "Production"
+            for status in project.step_statuses:
+                if status.name == "Script":
+                    status.state = "succeeded"
+                    status.message = "Final TTS-ready script complete."
+                elif status.name == "Production":
+                    status.state = "waiting"
+                    status.message = "Script and scene prompts ready. Ready for TTS voice and images."
+            save_project(outputs, project)
+
+            # 씬 프롬프트 및 비디오 씬 자동 동기화
+            try:
+                generate_concept_kit_and_video_scenes(path, settings)
+                project.generated_files["concept_kit"] = CONCEPT_KIT_FILENAME
+                project.generated_files["video_scenes"] = VIDEO_SCENES_FILENAME
+                save_project(outputs, project)
+            except Exception:
+                pass
+
+            return state.model_dump()
+        except HTTPException:
+            raise
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return router

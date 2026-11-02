@@ -48,79 +48,87 @@ export const TitleOverlay: React.FC<TitleOverlayProps> = ({ title }) => {
   const currentScale = exitScale;
   const currentOpacity = exitOpacity;
 
-  // 줄바꿈(\n) 처리
-  const lines = title.trim().split("\n");
+  // 줄바꿈(\\n 문자열 포함) 정규화 및 분할
+  const normalizedTitle = (title || "").replace(/\\n/g, "\n").trim();
+  let rawLines = normalizedTitle
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
 
-  // 글자 크기: 사용자의 요청에 따라 1.1배 축소하여 양옆 잘림 방지
-  // 1080px 화면 폭에서 꽉 차면서도 안전하게 여백 확보
-  const maxLineLength = Math.max(...lines.map((l) => l.length));
-  let calculatedFontSize = 136; // 150 / 1.1
+  // 줄바꿈이 없는데 12자 이상이면 공백 기준으로 2줄 분할
+  if (rawLines.length === 1 && rawLines[0].length >= 12) {
+    const words = rawLines[0].split(/\s+/);
+    if (words.length >= 2) {
+      const mid = Math.ceil(words.length / 2);
+      rawLines = [words.slice(0, mid).join(" "), words.slice(mid).join(" ")];
+    }
+  }
+
+  const lines = rawLines.slice(0, 2);
+  const maxLineLength = lines.length > 0 ? Math.max(...lines.map((l) => l.length)) : 0;
+  let calculatedFontSize = 130;
   if (maxLineLength >= 17) {
-    calculatedFontSize = 80; // 88 / 1.1
+    calculatedFontSize = 80;
   } else if (maxLineLength >= 15) {
-    calculatedFontSize = 90; // 100 / 1.1
+    calculatedFontSize = 90;
   } else if (maxLineLength >= 13) {
-    calculatedFontSize = 102; // 112 / 1.1
+    calculatedFontSize = 100;
   } else if (maxLineLength >= 11) {
-    calculatedFontSize = 116; // 11~12자 (130 / 1.1 = 118에서 안전 마진 고려 116px)
+    calculatedFontSize = 112;
   } else if (maxLineLength >= 9) {
-    calculatedFontSize = 124;
+    calculatedFontSize = 120;
   }
 
   return (
     <div
       style={{
         position: "absolute",
-        left: 0,
-        right: 0,
-        top: 0,
-        bottom: 0,
+        top: "27%",
+        left: "50%",
+        transform: `translate(-50%, -50%) scale(${currentScale})`,
+        opacity: currentOpacity,
+        width: "100%",
+        maxWidth: "1050px",
+        padding: "0 24px",
         display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
         justifyContent: "center",
-        alignItems: "center", // 중앙 기준
-        padding: "0 16px 200px 16px", // 중앙보다 조금 더 위쪽으로 올리며 좌우 가용 폭(1048px) 최대 확보
+        gap: "12px",
+        textAlign: "center",
+        boxSizing: "border-box",
         pointerEvents: "none",
         zIndex: 60, // 하단 자막(zIndex: 50)보다 상위
       }}
     >
-      <div
-        style={{
-          transform: `scale(${currentScale})`,
-          opacity: currentOpacity,
-          width: "100%",
-          maxWidth: "1050px",
-          textAlign: "center",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: "12px",
-        }}
-      >
-        {/* 네모박스 없이 글자만 1.2배 더 키워 큼직하게 렌더링 */}
-        {lines.map((line, idx) => (
+      {lines.map((line, idx) => {
+        const isSecondLine = idx === 1;
+        const textColor = isSecondLine ? "#ffe500" : "#ffffff";
+
+        return (
           <div
             key={idx}
             style={{
               fontFamily:
                 'Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", Roboto, sans-serif',
               fontSize: `${calculatedFontSize}px`,
-              fontWeight: 800, // 자막과 동일한 800(ExtraBold)로 통일
+              fontWeight: 900,
               lineHeight: 1.15,
-              color: idx === 0 ? "#ffffff" : "#fef08a", // 1줄은 화이트, 2줄은 강조 옐로우
-              letterSpacing: "-3px", // 큼직한 폰트에서 양끝 잘림을 방지하고 탄탄한 헤드라인을 만드는 자간
+              color: textColor,
+              letterSpacing: "-3px",
               whiteSpace: "nowrap",
               wordBreak: "keep-all",
-              // 커진 폰트에 맞춰 9px 볼드 블랙 외곽선 & 입체 그림자
-              WebkitTextStroke: "9px #000000",
+              WebkitTextStroke: "14px #000000",
               paintOrder: "stroke fill",
               textShadow:
-                "0 4px 8px rgba(0, 0, 0, 0.9), 0 8px 24px rgba(0, 0, 0, 0.95), 0 0 35px rgba(0, 0, 0, 0.8)",
+                "0 4px 12px rgba(0, 0, 0, 0.95), 0 8px 30px rgba(0, 0, 0, 0.95), 0 0 45px rgba(0, 0, 0, 0.85)",
             }}
           >
             {line}
           </div>
-        ))}
-      </div>
+        );
+      })}
     </div>
   );
 };
+

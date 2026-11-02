@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import type { ProductionState } from "../types";
+import { useEffect, useState, useRef } from "react";
+import type { CameraMovementItem, MotionRecommendationItem, ProductionState, VisualStyleItem } from "../types";
+import { fetchVisualStyles, recommendSceneMotion } from "../api";
 import {
   IMAGE_MODELS,
   VIDEO_MODELS,
@@ -7,13 +8,136 @@ import {
   type ModelOption
 } from "./ModelSelectorModal";
 
+const DEFAULT_VISUAL_STYLES: readonly VisualStyleItem[] = [
+  {
+    id: "live_action",
+    number: 1,
+    name: "실사형 (Live Action)",
+    feature: "실제 사람, 사물, 배경을 촬영하거나 AI로 사실적으로 구현",
+    best_for: "과학 현상, 실험, 자연, 역사",
+    icon: "📸",
+    system_persona: "다큐멘터리/실사 내셔널 지오그래픽 스타일",
+    image_prompt_guide: "Hyperrealistic 8k documentary photography",
+    default_concept_style: "Hyperrealistic 8k live-action documentary photograph",
+    sample_prompt_prefix: "Hyperrealistic 8k live-action documentary photograph"
+  },
+  {
+    id: "cinematic",
+    number: 2,
+    name: "시네마틱 (Cinematic)",
+    feature: "영화 같은 조명, 카메라 움직임, 극적인 연출",
+    best_for: "미스터리, 우주, 감동적인 이야기",
+    icon: "🎬",
+    system_persona: "할리우드 SF/드라마 블록버스터 영화 촬영 감독",
+    image_prompt_guide: "Epic cinematic movie still, anamorphic look",
+    default_concept_style: "Epic cinematic movie still, dramatic chiaroscuro lighting",
+    sample_prompt_prefix: "Epic cinematic movie still, shot on Arri Alexa 65"
+  },
+  {
+    id: "2d_cartoon",
+    number: 3,
+    name: "2D 카툰 애니메이션",
+    feature: "평면 캐릭터와 일러스트가 움직이는 방식",
+    best_for: "과학 상식, 교육, 스토리텔링",
+    icon: "🎨",
+    system_persona: "카툰 네트워크/디즈니 전통 2D 애니메이션",
+    image_prompt_guide: "Clean vibrant 2D vector animation style",
+    default_concept_style: "Vibrant clean modern 2D cartoon animation illustration",
+    sample_prompt_prefix: "Vibrant modern 2D cartoon animation style"
+  },
+  {
+    id: "anime",
+    number: 4,
+    name: "애니메이션 / 일본 애니풍",
+    feature: "만화적인 인물, 배경, 표정과 역동적인 연출",
+    best_for: "역사, 가상 상황, 스토리형 쇼츠",
+    icon: "⚡",
+    system_persona: "신카이 마코토 및 유포테이블 스타일 극장판 애니메이션",
+    image_prompt_guide: "High-end modern Japanese anime art style",
+    default_concept_style: "High-end Japanese anime visual style, Makoto Shinkai aesthetic",
+    sample_prompt_prefix: "High-end modern Japanese anime style"
+  },
+  {
+    id: "3d_cgi",
+    number: 5,
+    name: "3D 애니메이션 (CGI)",
+    feature: "입체 모델과 가상 카메라를 이용한 영상",
+    best_for: "인체 내부, 기계 구조, 과학 원리",
+    icon: "💎",
+    system_persona: "Pixar / Unreal Engine 5 3D CGI 애니메이션",
+    image_prompt_guide: "Pixar / Unreal Engine 5 high-end 3D CGI render",
+    default_concept_style: "High-end Pixar-style 3D CGI animation render",
+    sample_prompt_prefix: "High-end 3D CGI render, Pixar aesthetic"
+  },
+  {
+    id: "motion_graphics",
+    number: 6,
+    name: "모션그래픽 (Motion Graphics)",
+    feature: "도형, 아이콘, 다이어그램, 숫자를 움직여 설명",
+    best_for: "AI, 기술, 공학, 정보 전달",
+    icon: "📊",
+    system_persona: "Vox / Kurzgesagt 스타일 프리미엄 인포그래픽",
+    image_prompt_guide: "Sleek tech motion graphics, isometric infographic diagrams",
+    default_concept_style: "Sleek modern motion graphics infographic",
+    sample_prompt_prefix: "Sleek modern motion graphics infographic style"
+  },
+  {
+    id: "kinetic_typography",
+    number: 7,
+    name: "키네틱 타이포그래피",
+    feature: "자막과 글자가 음성에 맞춰 확대·축소·이동",
+    best_for: "명언, 동기부여, 강렬한 정보 전달",
+    icon: "🔤",
+    system_persona: "브루탈리스트 키네틱 타이포그래피 그래픽 디자인",
+    image_prompt_guide: "Bold brutalist kinetic graphic design",
+    default_concept_style: "Bold brutalist kinetic graphic design background",
+    sample_prompt_prefix: "Bold graphic design poster style"
+  },
+  {
+    id: "claymation",
+    number: 8,
+    name: "스톱모션 / 클레이 애니메이션",
+    feature: "점토, 종이, 모형 등을 프레임별로 움직이는 연출",
+    best_for: "재미있는 과학, 어린이 교육, 창의적 영상",
+    icon: "🧸",
+    system_persona: "3D 스톱모션 클레이메이션 비주얼 마스터",
+    image_prompt_guide: "Cute professional miniature claymation infographic",
+    default_concept_style: "Cute professional miniature claymation infographic",
+    sample_prompt_prefix: "Claymation style vertical 9:16 portrait"
+  },
+  {
+    id: "screencast_ui",
+    number: 9,
+    name: "스크린캐스트 / UI 애니메이션",
+    feature: "컴퓨터 화면, 앱 인터페이스, 마우스 움직임을 중심으로 제작",
+    best_for: "AI 프로그램 소개, 사용법, 자동화",
+    icon: "💻",
+    system_persona: "Apple / Linear 스타일 모던 UI/UX 쇼케이스",
+    image_prompt_guide: "Modern sleek dark-mode glassmorphism UI mockups",
+    default_concept_style: "Modern sleek dark-mode glassmorphism UI showcase",
+    sample_prompt_prefix: "Modern dark-mode glassmorphism UI concept"
+  },
+  {
+    id: "mixed_media",
+    number: 10,
+    name: "믹스드 미디어 (Mixed Media)",
+    feature: "실사, 사진, 2D, 3D, 자막 등을 조합",
+    best_for: "다큐멘터리, 과학 해설, 지식 쇼츠",
+    icon: "🎞️",
+    system_persona: "현대 다큐멘터리 믹스드 미디어 콜라주 아티스트",
+    image_prompt_guide: "Artistic mixed-media collage with craft textures",
+    default_concept_style: "Artistic mixed-media collage",
+    sample_prompt_prefix: "Artistic mixed-media documentary collage"
+  }
+];
+
 interface ProductionPanelProps {
   readonly projectId: string;
   readonly productionState: ProductionState | null;
   readonly isBusy: boolean;
   readonly hasFinalScript: boolean;
   readonly onGenerateProduction: () => void;
-  readonly onGenerateConcepts?: () => void;
+  readonly onGenerateConcepts?: (visualStyleId?: string) => void;
   readonly onGenerateSceneImage?: (sceneId: number, model?: string) => void;
   readonly onGenerateAllSceneImages?: (model?: string) => void;
   readonly onGenerateSceneVideo?: (sceneId: number, model?: string, duration?: number, multiShots?: boolean, matchPrevFrame?: boolean) => void;
@@ -32,10 +156,23 @@ interface ProductionPanelProps {
     startImagePrompt?: string,
     videoPrompt?: string
   ) => Promise<void>;
+  readonly onApplySceneMotion?: (
+    sceneId: number,
+    movementId: string,
+    customInstruction?: string
+  ) => Promise<void>;
+  readonly onUpdateVisualStyle?: (
+    visualStyleId: string,
+    regeneratePrompts?: boolean
+  ) => Promise<void>;
   readonly onRenderShorts?: (title?: string) => void;
   readonly projectTitle?: string;
   readonly videoTitle?: string;
   readonly onTitleChange?: (title: string) => void;
+  readonly onUploadThumbnail?: (file: File) => void;
+  readonly onGenerateThumbnail?: (model?: string, prompt?: string) => void;
+  readonly onSetThumbnailFromScene?: (sceneId?: number) => void;
+  readonly onDeleteThumbnail?: () => void;
 }
 
 export function ProductionPanel({
@@ -51,10 +188,16 @@ export function ProductionPanel({
   onPassContinuity,
   onRegenerateWithFeedback,
   onUpdateScenePrompts,
+  onApplySceneMotion,
+  onUpdateVisualStyle,
   onRenderShorts,
   projectTitle,
   videoTitle: propVideoTitle,
-  onTitleChange
+  onTitleChange,
+  onUploadThumbnail,
+  onGenerateThumbnail,
+  onSetThumbnailFromScene,
+  onDeleteThumbnail
 }: ProductionPanelProps) {
   const [expandedPromptId, setExpandedPromptId] = useState<number | null>(null);
   const [imageModel, setImageModel] = useState<string>("nano_banana_pro");
@@ -77,6 +220,100 @@ export function ProductionPanel({
   const [isSavingPrompts, setIsSavingPrompts] = useState<boolean>(false);
   const [videoTitle, setVideoTitle] = useState<string>(() => propVideoTitle ?? projectTitle ?? "");
   const [ttsError, setTtsError] = useState<string | null>(null);
+
+  const [visualStyles, setVisualStyles] = useState<readonly VisualStyleItem[]>([]);
+  const [selectedStyleId, setSelectedStyleId] = useState<string>("claymation");
+  const [modalSelectedStyleId, setModalSelectedStyleId] = useState<string>("claymation");
+  const [isStyleModalOpen, setIsStyleModalOpen] = useState<boolean>(false);
+  const [isChangingStyle, setIsChangingStyle] = useState<boolean>(false);
+  const [regeneratePromptsOnStyleChange, setRegeneratePromptsOnStyleChange] = useState<boolean>(true);
+
+  const effectiveVisualStyles = visualStyles.length > 0 ? visualStyles : DEFAULT_VISUAL_STYLES;
+  const currentStyleObj = effectiveVisualStyles.find((s) => s.id === selectedStyleId) ?? effectiveVisualStyles[7] ?? DEFAULT_VISUAL_STYLES[7];
+
+  const openStyleModal = () => {
+    setModalSelectedStyleId(selectedStyleId);
+    setIsStyleModalOpen(true);
+  };
+
+  useEffect(() => {
+    let ignore = false;
+    fetchVisualStyles(projectId)
+      .then((data) => {
+        if (!ignore && data.length > 0) {
+          setVisualStyles(data);
+        }
+      })
+      .catch((err) => console.error("Failed to fetch visual styles", err));
+    return () => {
+      ignore = true;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (productionState?.concept_kit?.visual_style_id) {
+      setSelectedStyleId(productionState.concept_kit.visual_style_id);
+      setModalSelectedStyleId(productionState.concept_kit.visual_style_id);
+    }
+  }, [productionState?.concept_kit?.visual_style_id]);
+
+  const handleSelectAndApplyStyle = async (newStyleId: string) => {
+    setSelectedStyleId(newStyleId);
+    if (!onUpdateVisualStyle) return;
+    setIsChangingStyle(true);
+    try {
+      await onUpdateVisualStyle(newStyleId, regeneratePromptsOnStyleChange);
+      setIsStyleModalOpen(false);
+    } catch (err) {
+      console.error("Failed to update visual style", err);
+    } finally {
+      setIsChangingStyle(false);
+    }
+  };
+
+  const [motionModalSceneId, setMotionModalSceneId] = useState<number | null>(null);
+  const [motionLoading, setMotionLoading] = useState<boolean>(false);
+  const [motionRecommendations, setMotionRecommendations] = useState<readonly MotionRecommendationItem[]>([]);
+  const [availableMovements, setAvailableMovements] = useState<readonly CameraMovementItem[]>([]);
+  const [selectedMovementId, setSelectedMovementId] = useState<string | null>(null);
+  const [customMotionInstruction, setCustomMotionInstruction] = useState<string>("");
+  const [isApplyingMotion, setIsApplyingMotion] = useState<boolean>(false);
+  const [motionCategoryFilter, setMotionCategoryFilter] = useState<string>("all");
+  const [motionModalNarration, setMotionModalNarration] = useState<string>("");
+
+  const openMotionModal = async (sceneId: number, narration: string, currentMotionId?: string | null) => {
+    setMotionModalSceneId(sceneId);
+    setMotionModalNarration(narration);
+    setSelectedMovementId(currentMotionId ?? null);
+    setCustomMotionInstruction("");
+    setMotionCategoryFilter("all");
+    setMotionLoading(true);
+    try {
+      const data = await recommendSceneMotion(projectId, sceneId);
+      setMotionRecommendations(data.recommendations);
+      setAvailableMovements(data.available_movements);
+      if (!currentMotionId && data.recommendations.length > 0) {
+        setSelectedMovementId(data.recommendations[0].movement_id);
+      }
+    } catch (err) {
+      console.error("Failed to load motion recommendations", err);
+    } finally {
+      setMotionLoading(false);
+    }
+  };
+
+  const handleApplyMotion = async (movementId: string, instruction: string = "") => {
+    if (!motionModalSceneId || !onApplySceneMotion) return;
+    setIsApplyingMotion(true);
+    try {
+      await onApplySceneMotion(motionModalSceneId, movementId, instruction);
+      setMotionModalSceneId(null);
+    } catch (err) {
+      console.error("Failed to apply motion", err);
+    } finally {
+      setIsApplyingMotion(false);
+    }
+  };
 
   useEffect(() => {
     if (propVideoTitle !== undefined) {
@@ -217,6 +454,56 @@ export function ProductionPanel({
 
   const [renderError, setRenderError] = useState<string | null>(null);
   const [renderKey, setRenderKey] = useState<number>(() => Date.now());
+  const finalVideoRef = useRef<HTMLVideoElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (finalVideoRef.current) {
+      finalVideoRef.current.load();
+    }
+  }, [renderKey]);
+
+  const handleThumbnailUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleThumbnailFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && onUploadThumbnail) {
+      onUploadThumbnail(file);
+    }
+    e.target.value = "";
+  };
+
+  const handleGenerateThumbnailClick = async () => {
+    if (!onGenerateThumbnail) return;
+    setBusyAction("thumbnail" as any);
+    try {
+      await onGenerateThumbnail(imageModel);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleSetThumbnailFromSceneClick = async (sceneId: number = 1) => {
+    if (!onSetThumbnailFromScene) return;
+    setBusyAction("thumbnail" as any);
+    try {
+      await onSetThumbnailFromScene(sceneId);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleDeleteThumbnailClick = async () => {
+    if (!onDeleteThumbnail) return;
+    setBusyAction("thumbnail" as any);
+    try {
+      await onDeleteThumbnail();
+    } finally {
+      setBusyAction(null);
+    }
+  };
 
   const handleAllVideosAndRender = async () => {
     if (!onGenerateSceneVideo || videoScenes.length === 0) return;
@@ -741,11 +1028,11 @@ export function ProductionPanel({
         </p>
       ) : (
         <div className="production-content" style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-          {/* 🎛️ AI 생성 모델 선택 듀얼 카드 (첨부 이미지 스타일 모달 연동) */}
+          {/* 🎛️ AI 생성 모델 및 스타일 선택 3종 카드 (모달 연동) */}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
               gap: "0.75rem",
               background: "rgba(255, 255, 255, 0.02)",
               padding: "0.85rem",
@@ -848,6 +1135,44 @@ export function ProductionPanel({
               </div>
               <div style={{ color: "#a78bfa", fontSize: "18px", fontWeight: "bold", paddingLeft: "0.5rem" }}>›</div>
             </div>
+
+            {/* 비주얼 스타일 셀렉터 (10종) */}
+            <div
+              onClick={openStyleModal}
+              style={{
+                background: "rgba(15, 23, 42, 0.7)",
+                border: "1px solid rgba(244, 63, 94, 0.35)",
+                borderRadius: "10px",
+                padding: "0.85rem 1rem",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                transition: "all 0.15s ease"
+              }}
+              title="클릭하여 비주얼 스타일(10종) 변경"
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
+                <div style={{ width: "38px", height: "38px", borderRadius: "8px", background: "rgba(244, 63, 94, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", flexShrink: 0 }}>
+                  {currentStyleObj.icon || "🎨"}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: "11px", color: "#fb7185", fontWeight: "600", marginBottom: "2px" }}>
+                    비주얼 스타일 선택 (클릭하여 변경)
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                    <strong style={{ fontSize: "0.95rem", color: "#f8fafc" }}>{currentStyleObj.name}</strong>
+                    <span style={{ fontSize: "10px", background: "#e11d48", color: "#fff", padding: "1px 5px", borderRadius: "3px", fontWeight: "bold" }}>
+                      10종
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, color: "#94a3b8", fontSize: "11px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {currentStyleObj.feature}
+                  </p>
+                </div>
+              </div>
+              <div style={{ color: "#fb7185", fontSize: "18px", fontWeight: "bold", paddingLeft: "0.5rem" }}>›</div>
+            </div>
           </div>
 
           {/* 오디오 플레이어 영역 */}
@@ -875,11 +1200,36 @@ export function ProductionPanel({
           {conceptKit && (
             <div style={{ background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: "8px", padding: "1rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-                <strong style={{ color: "#0284c7" }}>🎨 Visual Concept Kit (클레이메이션 인포그래픽)</strong>
-                <span className="count-pill">9:16 Portrait</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <strong style={{ color: "#0284c7" }}>🎨 Visual Concept Kit ({currentStyleObj.name})</strong>
+                  {currentStyleObj.best_for && (
+                    <span style={{ fontSize: "11px", background: "#e0f2fe", color: "#0369a1", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>
+                      추천: {currentStyleObj.best_for.split(",")[0]}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <button
+                    type="button"
+                    onClick={openStyleModal}
+                    style={{
+                      background: "rgba(2, 132, 199, 0.1)",
+                      border: "1px solid #0284c7",
+                      color: "#0284c7",
+                      borderRadius: "6px",
+                      padding: "3px 10px",
+                      fontSize: "12px",
+                      fontWeight: "bold",
+                      cursor: "pointer"
+                    }}
+                  >
+                    🎨 스타일 변경
+                  </button>
+                  <span className="count-pill">9:16 Portrait</span>
+                </div>
               </div>
               <p style={{ margin: "0.25rem 0", fontSize: "0.9rem", color: "#1e293b" }}>
-                <strong>스타일:</strong> {conceptKit.visual_style}
+                <strong>스타일 가이드:</strong> {conceptKit.visual_style}
               </p>
               <p style={{ margin: "0.25rem 0", fontSize: "0.85rem", color: "#475569" }}>
                 <strong>조명 & 색감:</strong> {conceptKit.color_and_lighting}
@@ -887,7 +1237,7 @@ export function ProductionPanel({
               <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
                 {conceptKit.core_objects.map((obj, i) => (
                   <span key={i} style={{ fontSize: "11px", background: "#e2e8f0", color: "#334155", padding: "2px 8px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                    🏺 {obj}
+                    {currentStyleObj.icon || "🏺"} {obj}
                   </span>
                 ))}
               </div>
@@ -1031,45 +1381,145 @@ export function ProductionPanel({
               <span className="count-pill">총 {videoScenes.length}개 비디오 씬</span>
             </div>
 
-            {/* 💡 시작 가이드 안내 배너 */}
-            <div
-              style={{
-                background: "#f0f9ff",
-                border: "1.5px solid #38bdf8",
-                borderRadius: "8px",
-                padding: "0.9rem 1.1rem",
-                marginBottom: "1rem",
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.45rem",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <span style={{ fontSize: "18px" }}>🚀</span>
-                <strong style={{ color: "#0369a1", fontSize: "1rem" }}>이미지 & 비디오 제작 시작 가이드</strong>
-              </div>
-              <div style={{ fontSize: "0.88rem", color: "#1e293b", lineHeight: "1.6" }}>
-                <p style={{ margin: "0 0 0.35rem 0" }}>
-                  대본을 바탕으로 <strong>총 {videoScenes.length}개 씬의 이미지 & 비디오 프롬프트가 이미 100% 설계 완료</strong>되어 있습니다.
-                </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", background: "white", padding: "0.6rem 0.8rem", borderRadius: "6px", border: "1px solid #e0f2fe" }}>
-                  <div>
-                    <strong style={{ color: "#0284c7" }}>• [순차 진행 권장]:</strong> 아래 <strong>Scene 1</strong>의 <strong>[🖼️ 이미지 생성 ({currentImageModel.name})]</strong>을 먼저 눌러 시작 이미지를 뽑으세요. 이미지가 마음에 들면 활성화되는 <strong>[🎬 비디오 생성 ({currentVideoModel.name})]</strong>을 눌러 영상 클립을 완성합니다.
-                  </div>
-                  <div>
-                    <strong style={{ color: "#7c3aed" }}>• [일괄 진행]:</strong> 상단 큰 버튼 <strong>[🖼️ 전체 씬 AI 이미지 일괄 생성]</strong>을 누르면 {videoScenes.length}개 씬의 시작 이미지가 한 번에 일괄 생성됩니다.
+            {/* 💡 시작 가이드 안내 배너 (씬이 설계된 후 표시) */}
+            {videoScenes.length > 0 && (
+              <div
+                style={{
+                  background: "#f0f9ff",
+                  border: "1.5px solid #38bdf8",
+                  borderRadius: "8px",
+                  padding: "0.9rem 1.1rem",
+                  marginBottom: "1rem",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.45rem",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span style={{ fontSize: "18px" }}>🚀</span>
+                  <strong style={{ color: "#0369a1", fontSize: "1rem" }}>이미지 & 비디오 제작 시작 가이드</strong>
+                </div>
+                <div style={{ fontSize: "0.88rem", color: "#1e293b", lineHeight: "1.6" }}>
+                  <p style={{ margin: "0 0 0.35rem 0" }}>
+                    대본을 바탕으로 <strong>총 {videoScenes.length}개 씬의 이미지 & 비디오 프롬프트가 이미 100% 설계 완료</strong>되어 있습니다.
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", background: "white", padding: "0.6rem 0.8rem", borderRadius: "6px", border: "1px solid #e0f2fe" }}>
+                    <div>
+                      <strong style={{ color: "#0284c7" }}>• [순차 진행 권장]:</strong> 아래 <strong>Scene 1</strong>의 <strong>[🖼️ 이미지 생성 ({currentImageModel.name})]</strong>을 먼저 눌러 시작 이미지를 뽑으세요. 이미지가 마음에 들면 활성화되는 <strong>[🎬 비디오 생성 ({currentVideoModel.name})]</strong>을 눌러 영상 클립을 완성합니다.
+                    </div>
+                    <div>
+                      <strong style={{ color: "#7c3aed" }}>• [일괄 진행]:</strong> 상단 큰 버튼 <strong>[🖼️ 전체 씬 AI 이미지 일괄 생성]</strong>을 누르면 {videoScenes.length}개 씬의 시작 이미지가 한 번에 일괄 생성됩니다.
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {videoScenes.length === 0 ? (
-              <p className="empty-state">
-                {hasAudio
-                  ? "음성이 준비되었습니다. [🎨 6개 비디오 씬 & 연속성 설계] 버튼을 눌러 원테이크 씬들을 구성하세요."
-                  : "먼저 음성을 생성해주세요."}
-              </p>
+              <div
+                style={{
+                  background: "rgba(15, 23, 42, 0.6)",
+                  border: "1.5px solid rgba(56, 189, 248, 0.3)",
+                  borderRadius: "12px",
+                  padding: "1.5rem",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "1.2rem"
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.5rem" }}>
+                  <div>
+                    <h4 style={{ margin: "0 0 4px", fontSize: "16px", color: "#f8fafc", display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span>🎨</span> 제작할 쇼츠의 비주얼 스타일을 선택해주세요 (10종)
+                    </h4>
+                    <p style={{ margin: 0, fontSize: "13px", color: "#94a3b8" }}>
+                      스타일을 선택하면 해당 장르에 특화된 프롬프트 엔지니어링 시스템이 적용되어 일관성 높은 씬과 프롬프트가 자동 설계됩니다.
+                    </p>
+                  </div>
+                  <span style={{ fontSize: "11px", background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", padding: "3px 8px", borderRadius: "4px", border: "1px solid rgba(56, 189, 248, 0.3)" }}>
+                    현재 선택: {currentStyleObj.name}
+                  </span>
+                </div>
+
+                {/* 10개 스타일 카드 그리드 */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+                    gap: "10px"
+                  }}
+                >
+                  {effectiveVisualStyles.map((st) => {
+                    const isSelected = selectedStyleId === st.id;
+                    return (
+                      <div
+                        key={st.id}
+                        onClick={() => setSelectedStyleId(st.id)}
+                        style={{
+                          background: isSelected ? "rgba(56, 189, 248, 0.15)" : "rgba(30, 41, 59, 0.5)",
+                          border: isSelected ? "2px solid #38bdf8" : "1px solid rgba(255, 255, 255, 0.1)",
+                          borderRadius: "10px",
+                          padding: "12px 14px",
+                          cursor: "pointer",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "6px",
+                          transition: "all 0.15s ease",
+                          boxShadow: isSelected ? "0 0 12px rgba(56, 189, 248, 0.25)" : "none"
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <span style={{ fontSize: "18px" }}>{st.icon || "🎨"}</span>
+                            <strong style={{ fontSize: "13px", color: isSelected ? "#38bdf8" : "#f1f5f9" }}>
+                              {st.number}. {st.name}
+                            </strong>
+                          </div>
+                          {isSelected && (
+                            <span style={{ fontSize: "10px", background: "#0284c7", color: "#fff", padding: "1px 6px", borderRadius: "3px", fontWeight: "bold" }}>
+                              선택됨
+                            </span>
+                          )}
+                        </div>
+                        <p style={{ margin: 0, fontSize: "12px", color: "#cbd5e1", lineHeight: 1.4 }}>
+                          {st.feature}
+                        </p>
+                        <div style={{ marginTop: "4px", fontSize: "11px", color: "#94a3b8" }}>
+                          <span style={{ color: "#38bdf8", fontWeight: "bold" }}>어울리는 콘텐츠:</span> {st.best_for}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 액션 버튼 */}
+                <div style={{ display: "flex", justifyContent: "center", marginTop: "0.5rem" }}>
+                  {hasAudio ? (
+                    <button
+                      type="button"
+                      className="primary-button"
+                      disabled={isBusy}
+                      onClick={() => onGenerateConcepts?.(selectedStyleId)}
+                      style={{
+                        padding: "12px 28px",
+                        fontSize: "14px",
+                        fontWeight: "bold",
+                        background: "linear-gradient(135deg, #0284c7 0%, #2563eb 100%)",
+                        boxShadow: "0 4px 14px rgba(37, 99, 235, 0.4)",
+                        borderRadius: "8px",
+                        cursor: isBusy ? "not-allowed" : "pointer"
+                      }}
+                    >
+                      {isBusy ? "비디오 씬 설계 중..." : `✨ '${currentStyleObj.name}' 스타일로 6개 비디오 씬 자동 설계하기`}
+                    </button>
+                  ) : (
+                    <p style={{ color: "#94a3b8", fontSize: "13px", margin: 0 }}>
+                      ⚠️ 씬 설계를 시작하려면 먼저 상단의 <strong>[7. 🎙️ 1.2배속 음성 생성]</strong> 버튼을 눌러 음성을 생성해주세요.
+                    </p>
+                  )}
+                </div>
+              </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
                 {videoScenes.map((scene) => {
@@ -1399,15 +1849,55 @@ export function ProductionPanel({
                             {scene.start_image_prompt}
                           </p>
 
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "2px" }}>
-                            <span style={{ color: "#c084fc", fontWeight: "bold", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                              {isMatched ? "🎬 비디오 도킹 모션 프롬프트" : "🎬 비디오 모션 프롬프트"} ({currentVideoModel.name}):
-                              {isMatched && (
-                                <span style={{ fontSize: "10px", background: "rgba(192, 132, 252, 0.2)", color: "#d8b4fe", padding: "1px 6px", borderRadius: "3px", fontWeight: "normal" }}>
-                                  이전 씬 끝 ➔ 클라이맥스 도킹
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "2px", flexWrap: "wrap", gap: "6px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                              <span style={{ color: "#c084fc", fontWeight: "bold", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                                {isMatched ? "🎬 비디오 도킹 모션 프롬프트" : "🎬 비디오 모션 프롬프트"} ({currentVideoModel.name}):
+                                {isMatched && (
+                                  <span style={{ fontSize: "10px", background: "rgba(192, 132, 252, 0.2)", color: "#d8b4fe", padding: "1px 6px", borderRadius: "3px", fontWeight: "normal" }}>
+                                    이전 씬 끝 ➔ 클라이맥스 도킹
+                                  </span>
+                                )}
+                              </span>
+                              {scene.camera_movement && (
+                                <span
+                                  style={{
+                                    fontSize: "11px",
+                                    background: "linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(126, 34, 206, 0.35))",
+                                    color: "#e9d5ff",
+                                    border: "1px solid rgba(192, 132, 252, 0.4)",
+                                    padding: "2px 8px",
+                                    borderRadius: "12px",
+                                    fontWeight: 600,
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "4px"
+                                  }}
+                                >
+                                  🎥 {scene.camera_movement}
                                 </span>
                               )}
-                            </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => openMotionModal(scene.scene_id, scene.narration, scene.camera_movement)}
+                              style={{
+                                fontSize: "11px",
+                                padding: "3px 10px",
+                                cursor: "pointer",
+                                borderRadius: "6px",
+                                border: "1px solid #a855f7",
+                                background: "rgba(168, 85, 247, 0.18)",
+                                color: "#d8b4fe",
+                                fontWeight: "bold",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "5px"
+                              }}
+                              title="aicameramovements 기반 적절한 모션 추천 및 변경"
+                            >
+                              ✨ 🎥 카메라 모션 추천 / 변경
+                            </button>
                           </div>
                           <p style={{ margin: 0, color: "#e2e8f0", lineHeight: "1.45", background: "rgba(255,255,255,0.06)", padding: "0.55rem 0.75rem", borderRadius: "5px", border: "1px solid rgba(255,255,255,0.1)" }}>
                             {scene.video_prompt}
@@ -1781,6 +2271,138 @@ export function ProductionPanel({
               )}
             </div>
 
+            {/* 🖼️ 쇼츠 썸네일 (맨 앞장 커버) 관리 카드 */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={handleThumbnailFileChange}
+            />
+
+            <div
+              style={{
+                marginBottom: "1.25rem",
+                padding: "16px",
+                background: "linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.8) 100%)",
+                borderRadius: "12px",
+                border: productionState?.has_thumbnail ? "1.5px solid #38bdf8" : "1px solid #334155",
+                boxShadow: productionState?.has_thumbnail ? "0 4px 20px rgba(56, 189, 248, 0.15)" : "none",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "16px" }}>🖼️</span>
+                  <strong style={{ fontSize: "14px", color: "#f8fafc" }}>쇼츠 썸네일 (영상 맨 앞장 커버)</strong>
+                  {productionState?.has_thumbnail ? (
+                    <span style={{ fontSize: "11px", fontWeight: "bold", background: "#0284c7", color: "#ffffff", padding: "2px 8px", borderRadius: "12px" }}>
+                      ✓ 썸네일 적용됨
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: "11px", background: "#475569", color: "#cbd5e1", padding: "2px 8px", borderRadius: "12px" }}>
+                      미설정 (선택 사항)
+                    </span>
+                  )}
+                </div>
+                <span style={{ fontSize: "11px", color: "#94a3b8" }}>
+                  💡 렌더링 시 영상 첫 프레임(맨 앞장)으로 자동 삽입되어 유튜브 쇼츠 기본 커버로 잡힙니다.
+                </span>
+              </div>
+
+              {productionState?.has_thumbnail && productionState?.thumbnail_url ? (
+                <div style={{ display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
+                  <div
+                    style={{
+                      width: "80px",
+                      height: "142px",
+                      borderRadius: "8px",
+                      overflow: "hidden",
+                      border: "2px solid #38bdf8",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                      background: "#000",
+                      flexShrink: 0
+                    }}
+                  >
+                    <img
+                      src={`${productionState.thumbnail_url}?t=${cacheBuster}`}
+                      alt="쇼츠 썸네일 미리보기"
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <p style={{ margin: 0, fontSize: "13px", color: "#e2e8f0" }}>
+                      현재 설정된 썸네일 이미지가 <strong>영상 렌더링 시 맨 앞장(첫 프레임)</strong>에 포함됩니다.
+                    </p>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={handleThumbnailUploadClick}
+                        style={{ fontSize: "12px", padding: "6px 12px", cursor: "pointer", borderRadius: "6px", border: "1px solid #38bdf8", background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8", fontWeight: 600 }}
+                      >
+                        📁 다른 이미지로 교체
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={handleGenerateThumbnailClick}
+                        style={{ fontSize: "12px", padding: "6px 12px", cursor: "pointer", borderRadius: "6px", border: "1px solid #a855f7", background: "rgba(168, 85, 247, 0.15)", color: "#c084fc", fontWeight: 600 }}
+                      >
+                        ✨ AI 썸네일 다시 생성 ({currentImageModel.name})
+                      </button>
+                      {videoScenes.length > 0 && (
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => handleSetThumbnailFromSceneClick(1)}
+                          style={{ fontSize: "12px", padding: "6px 12px", cursor: "pointer", borderRadius: "6px", border: "1px solid #64748b", background: "rgba(100, 116, 139, 0.2)", color: "#cbd5e1" }}
+                        >
+                          🎬 Scene 1번 이미지로 설정
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={handleDeleteThumbnailClick}
+                        style={{ fontSize: "12px", padding: "6px 12px", cursor: "pointer", borderRadius: "6px", border: "1px solid #ef4444", background: "rgba(239, 68, 68, 0.15)", color: "#f87171" }}
+                      >
+                        🗑️ 썸네일 해제
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={handleThumbnailUploadClick}
+                    style={{ fontSize: "13px", padding: "8px 14px", cursor: "pointer", borderRadius: "6px", border: "1px solid #38bdf8", background: "rgba(56, 189, 248, 0.2)", color: "#38bdf8", fontWeight: "bold" }}
+                  >
+                    📁 썸네일 이미지 직접 업로드
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={handleGenerateThumbnailClick}
+                    style={{ fontSize: "13px", padding: "8px 14px", cursor: "pointer", borderRadius: "6px", border: "1px solid #a855f7", background: "rgba(168, 85, 247, 0.2)", color: "#c084fc", fontWeight: "bold" }}
+                  >
+                    ✨ AI 썸네일 자동 생성 ({currentImageModel.name})
+                  </button>
+                  {videoScenes.length > 0 && (
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => handleSetThumbnailFromSceneClick(1)}
+                      style={{ fontSize: "13px", padding: "8px 14px", cursor: "pointer", borderRadius: "6px", border: "1px solid #64748b", background: "rgba(100, 116, 139, 0.2)", color: "#cbd5e1" }}
+                    >
+                      🎬 Scene 1번 이미지로 설정
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* 0~2초 오프닝 타이틀 입력란 */}
             <div
               style={{
@@ -1979,6 +2601,7 @@ export function ProductionPanel({
                   }}
                 >
                   <video
+                    ref={finalVideoRef}
                     key={renderKey}
                     controls
                     playsInline
@@ -2007,6 +2630,530 @@ export function ProductionPanel({
           }}
           onClose={() => setModalMode(null)}
         />
+      )}
+
+      {/* 🎥 aicameramovements 기반 카메라 모션 추천 및 선택 모달 */}
+      {motionModalSceneId !== null && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.8)",
+            backdropFilter: "blur(4px)",
+            zIndex: 1100,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: "1.5rem"
+          }}
+          onClick={() => setMotionModalSceneId(null)}
+        >
+          <div
+            style={{
+              background: "#0f172a",
+              border: "1px solid #334155",
+              borderRadius: "16px",
+              maxWidth: "880px",
+              width: "100%",
+              maxHeight: "90vh",
+              display: "flex",
+              flexDirection: "column",
+              boxShadow: "0 25px 50px -12px rgba(0,0,0,0.8)",
+              overflow: "hidden"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 모달 헤더 */}
+            <div
+              style={{
+                padding: "1.2rem 1.5rem",
+                borderBottom: "1px solid #1e293b",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                background: "linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.9))"
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: "1.15rem", color: "#f8fafc", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span>🎬</span> Scene {motionModalSceneId} 카메라 모션 추천 및 설정
+                </h3>
+                <p style={{ margin: "4px 0 0", fontSize: "12px", color: "#94a3b8" }}>
+                  aicameramovements.com 표준 문법으로 AI 비디오 모델이 완벽히 이해하는 고품질 모션을 생성합니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMotionModalSceneId(null)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#94a3b8",
+                  fontSize: "1.4rem",
+                  cursor: "pointer",
+                  padding: "4px 8px"
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 모달 본문 (스크롤) */}
+            <div style={{ padding: "1.25rem 1.5rem", overflowY: "auto", display: "flex", flexDirection: "column", gap: "1.2rem" }}>
+              {/* 현재 씬 나레이션 */}
+              <div style={{ background: "rgba(30, 41, 59, 0.5)", padding: "10px 14px", borderRadius: "8px", border: "1px solid #334155" }}>
+                <span style={{ fontSize: "11px", color: "#38bdf8", fontWeight: "bold" }}>🗣️ 현재 씬 대본 구절:</span>
+                <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#f1f5f9", fontWeight: 500, lineHeight: 1.45 }}>
+                  "{motionModalNarration}"
+                </p>
+              </div>
+
+              {/* 섹션 1: AI 스마트 추천 모션 */}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+                  <h4 style={{ margin: 0, fontSize: "13px", color: "#c084fc", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span>💡</span> AI 문맥 맞춤 추천 모션 (Smart Recommendations)
+                  </h4>
+                  {motionLoading && (
+                    <span style={{ fontSize: "11px", color: "#a855f7" }}>분석 중...</span>
+                  )}
+                </div>
+
+                {motionLoading ? (
+                  <div style={{ padding: "1.5rem", textAlign: "center", background: "rgba(15, 23, 42, 0.6)", borderRadius: "8px", border: "1px dashed #475569" }}>
+                    <p style={{ margin: 0, fontSize: "13px", color: "#cbd5e1" }}>
+                      🤖 씬의 호흡, 감정선, 전후 맥락을 분석하여 최적의 텐션을 주는 카메라 모션을 계산 중입니다...
+                    </p>
+                  </div>
+                ) : motionRecommendations.length > 0 ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px" }}>
+                    {motionRecommendations.map((rec) => (
+                      <div
+                        key={rec.movement_id}
+                        style={{
+                          background: "linear-gradient(145deg, rgba(30, 41, 59, 0.8), rgba(24, 24, 27, 0.9))",
+                          border: "1.5px solid rgba(192, 132, 252, 0.4)",
+                          borderRadius: "10px",
+                          padding: "12px",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "8px",
+                          boxShadow: "0 4px 12px rgba(168, 85, 247, 0.15)"
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontWeight: "bold", fontSize: "14px", color: "#f8fafc" }}>
+                            {rec.movement_name}
+                          </span>
+                          <span style={{ fontSize: "11px", background: "rgba(168, 85, 247, 0.2)", color: "#d8b4fe", padding: "2px 6px", borderRadius: "4px" }}>
+                            {rec.category}
+                          </span>
+                        </div>
+                        <p style={{ margin: 0, fontSize: "12px", color: "#cbd5e1", lineHeight: 1.4 }}>
+                          {rec.reason}
+                        </p>
+                        <button
+                          type="button"
+                          disabled={isApplyingMotion}
+                          onClick={() => handleApplyMotion(rec.movement_id)}
+                          style={{
+                            marginTop: "4px",
+                            padding: "6px 12px",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            cursor: isApplyingMotion ? "not-allowed" : "pointer",
+                            background: "linear-gradient(135deg, #a855f7, #7c3aed)",
+                            color: "#ffffff",
+                            border: "none",
+                            borderRadius: "6px",
+                            boxShadow: "0 2px 6px rgba(168, 85, 247, 0.3)"
+                          }}
+                        >
+                          {isApplyingMotion ? "적용 중..." : "⚡ 이 모션으로 즉시 적용"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ margin: 0, fontSize: "12px", color: "#94a3b8" }}>
+                    추천 모션이 없습니다. 아래 카탈로그에서 직접 모션을 선택해 보세요.
+                  </p>
+                )}
+              </div>
+
+              {/* 섹션 2: 12대 핵심 카메라 모션 라이브러리 카탈로그 */}
+              <div>
+                <h4 style={{ margin: "0 0 8px", fontSize: "13px", color: "#38bdf8", display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span>📚</span> aicameramovements 쇼츠 핵심 12대 모션 카탈로그
+                </h4>
+
+                {/* 카테고리 필터 칩 */}
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "10px" }}>
+                  {[
+                    { id: "all", label: "전체 (12)" },
+                    { id: "⚡ 임팩트 & 반전", label: "⚡ 임팩트 & 반전" },
+                    { id: "🔍 긴장감 & 몰입", label: "🔍 긴장감 & 몰입" },
+                    { id: "🌀 3D 입체감 & 관찰", label: "🌀 3D 입체감" },
+                    { id: "🚀 역동성 & 추적", label: "🚀 역동성 & 추적" },
+                    { id: "🏔️ 스케일 & 공간감", label: "🏔️ 스케일" },
+                    { id: "⏸️ 안정 & 디테일", label: "⏸️ 고정/안정" }
+                  ].map((cat) => {
+                    const active = motionCategoryFilter === cat.id;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setMotionCategoryFilter(cat.id)}
+                        style={{
+                          fontSize: "11px",
+                          padding: "4px 8px",
+                          borderRadius: "6px",
+                          cursor: "pointer",
+                          border: active ? "1px solid #38bdf8" : "1px solid #334155",
+                          background: active ? "rgba(56, 189, 248, 0.2)" : "rgba(30, 41, 59, 0.5)",
+                          color: active ? "#38bdf8" : "#94a3b8",
+                          fontWeight: active ? "bold" : "normal"
+                        }}
+                      >
+                        {cat.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* 12개 모션 카드 그리드 */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                    gap: "8px",
+                    maxHeight: "220px",
+                    overflowY: "auto",
+                    paddingRight: "4px"
+                  }}
+                >
+                  {availableMovements
+                    .filter((m) => motionCategoryFilter === "all" || m.category === motionCategoryFilter)
+                    .map((m) => {
+                      const isSelected = selectedMovementId === m.id;
+                      return (
+                        <div
+                          key={m.id}
+                          onClick={() => setSelectedMovementId(m.id)}
+                          style={{
+                            background: isSelected ? "rgba(56, 189, 248, 0.15)" : "rgba(30, 41, 59, 0.4)",
+                            border: isSelected ? "1.5px solid #38bdf8" : "1px solid #334155",
+                            borderRadius: "8px",
+                            padding: "8px 10px",
+                            cursor: "pointer",
+                            transition: "all 0.15s ease"
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <strong style={{ fontSize: "12px", color: isSelected ? "#38bdf8" : "#e2e8f0" }}>
+                              {m.name}
+                            </strong>
+                            <span style={{ fontSize: "10px", color: "#94a3b8" }}>{m.category.split(" ")[0]}</span>
+                          </div>
+                          <p style={{ margin: "4px 0 0", fontSize: "11px", color: "#94a3b8", lineHeight: 1.3 }}>
+                            {m.summary}
+                          </p>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* 선택된 모션 상세 및 커스텀 요청 적용 영역 */}
+              {selectedMovementId && (
+                (() => {
+                  const m = availableMovements.find((item) => item.id === selectedMovementId);
+                  if (!m) return null;
+                  return (
+                    <div
+                      style={{
+                        background: "rgba(15, 23, 42, 0.75)",
+                        border: "1px solid #475569",
+                        borderRadius: "10px",
+                        padding: "12px 14px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "10px"
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: "13px", fontWeight: "bold", color: "#38bdf8" }}>
+                          선택된 모션: {m.name} ({m.category})
+                        </span>
+                        <span style={{ fontSize: "11px", color: "#94a3b8" }}>
+                          추천 씬: {m.best_for.join(", ")}
+                        </span>
+                      </div>
+
+                      <div style={{ fontSize: "11px", color: "#cbd5e1", background: "rgba(0,0,0,0.3)", padding: "8px", borderRadius: "6px", fontFamily: "monospace" }}>
+                        <div style={{ color: "#94a3b8", marginBottom: "2px" }}># aicameramovements 프롬프트 문법 템플릿:</div>
+                        {m.prompt_syntax}
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: "11px", color: "#94a3b8", display: "block", marginBottom: "4px" }}>
+                          💬 추가 연출 지시사항 (선택사항, 예: "피사체 표정에 더 바짝 다가가게 해줘"):
+                        </label>
+                        <input
+                          type="text"
+                          value={customMotionInstruction}
+                          onChange={(e) => setCustomMotionInstruction(e.target.value)}
+                          placeholder="추가로 카메라 속도나 구도에 대해 지시할 내용이 있다면 입력하세요..."
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            fontSize: "12px",
+                            borderRadius: "6px",
+                            border: "1px solid #334155",
+                            background: "#0f172a",
+                            color: "#f8fafc",
+                            boxSizing: "border-box"
+                          }}
+                        />
+                      </div>
+
+                      <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "4px" }}>
+                        <button
+                          type="button"
+                          onClick={() => setMotionModalSceneId(null)}
+                          style={{
+                            padding: "6px 14px",
+                            fontSize: "12px",
+                            cursor: "pointer",
+                            background: "transparent",
+                            border: "1px solid #475569",
+                            color: "#cbd5e1",
+                            borderRadius: "6px"
+                          }}
+                        >
+                          취소
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isApplyingMotion}
+                          onClick={() => handleApplyMotion(m.id, customMotionInstruction)}
+                          style={{
+                            padding: "6px 16px",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            cursor: isApplyingMotion ? "not-allowed" : "pointer",
+                            background: "linear-gradient(135deg, #0284c7, #2563eb)",
+                            color: "#ffffff",
+                            border: "none",
+                            borderRadius: "6px",
+                            boxShadow: "0 2px 8px rgba(37, 99, 235, 0.3)"
+                          }}
+                        >
+                          {isApplyingMotion ? "적용 중..." : `✨ '${m.name}' 모션 적용하기`}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🎨 비주얼 스타일 10종 선택 및 변경 모달 */}
+      {isStyleModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="비주얼 스타일 선택 및 변경"
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.75)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: "1rem",
+            backdropFilter: "blur(4px)"
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#0f172a",
+              border: "1.5px solid rgba(244, 63, 94, 0.4)",
+              borderRadius: "14px",
+              width: "100%",
+              maxWidth: "860px",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              padding: "1.5rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: "1.2rem",
+              boxShadow: "0 20px 45px rgba(0, 0, 0, 0.6)"
+            }}
+          >
+            {/* 모달 헤더 */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid rgba(255, 255, 255, 0.1)", paddingBottom: "1rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ fontSize: "26px" }}>🎨</span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "1.2rem", color: "#f8fafc" }}>
+                    비주얼 스타일 선택 (10종 체계화)
+                  </h3>
+                  <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#94a3b8" }}>
+                    선택한 스타일에 맞춰 시스템 프롬프트가 동적으로 교체되어 쇼츠에 완벽히 최적화된 프롬프트가 생성됩니다.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsStyleModalOpen(false)}
+                disabled={isChangingStyle}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#94a3b8",
+                  fontSize: "22px",
+                  cursor: "pointer",
+                  padding: "4px"
+                }}
+                aria-label="닫기"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 10대 비주얼 스타일 선택 그리드 */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+                gap: "10px",
+                maxHeight: "420px",
+                overflowY: "auto",
+                paddingRight: "4px"
+              }}
+            >
+              {effectiveVisualStyles.map((st) => {
+                const isSelected = modalSelectedStyleId === st.id;
+                return (
+                  <div
+                    key={st.id}
+                    onClick={() => setModalSelectedStyleId(st.id)}
+                    style={{
+                      background: isSelected ? "rgba(244, 63, 94, 0.15)" : "rgba(30, 41, 59, 0.5)",
+                      border: isSelected ? "2px solid #fb7185" : "1px solid rgba(255, 255, 255, 0.1)",
+                      borderRadius: "10px",
+                      padding: "12px 14px",
+                      cursor: "pointer",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                      transition: "all 0.15s ease",
+                      boxShadow: isSelected ? "0 0 12px rgba(244, 63, 94, 0.25)" : "none"
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <span style={{ fontSize: "18px" }}>{st.icon || "🎨"}</span>
+                        <strong style={{ fontSize: "13px", color: isSelected ? "#fb7185" : "#f1f5f9" }}>
+                          {st.number}. {st.name}
+                        </strong>
+                      </div>
+                      {isSelected && (
+                        <span style={{ fontSize: "10px", background: "#e11d48", color: "#fff", padding: "1px 6px", borderRadius: "3px", fontWeight: "bold" }}>
+                          선택됨
+                        </span>
+                      )}
+                    </div>
+                    <p style={{ margin: 0, fontSize: "12px", color: "#cbd5e1", lineHeight: 1.4 }}>
+                      {st.feature}
+                    </p>
+                    <div style={{ marginTop: "4px", fontSize: "11px", color: "#94a3b8" }}>
+                      <span style={{ color: "#fb7185", fontWeight: "bold" }}>어울리는 콘텐츠:</span> {st.best_for}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* 프롬프트 재생성 옵션 체크박스 */}
+            {videoScenes.length > 0 && (
+              <div
+                style={{
+                  background: "rgba(30, 41, 59, 0.7)",
+                  border: "1px dashed rgba(244, 63, 94, 0.4)",
+                  borderRadius: "8px",
+                  padding: "10px 14px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px"
+                }}
+              >
+                <input
+                  type="checkbox"
+                  id="regen-prompts-check"
+                  checked={regeneratePromptsOnStyleChange}
+                  onChange={(e) => setRegeneratePromptsOnStyleChange(e.target.checked)}
+                  style={{ width: "16px", height: "16px", cursor: "pointer", accentColor: "#e11d48" }}
+                />
+                <label htmlFor="regen-prompts-check" style={{ fontSize: "13px", color: "#f1f5f9", cursor: "pointer" }}>
+                  <strong>새 스타일에 맞춰 기존 씬들의 프롬프트도 함께 자동 재생성</strong>
+                  <span style={{ display: "block", fontSize: "11px", color: "#94a3b8", marginTop: "2px" }}>
+                    (권장) 선택 시 현재 {videoScenes.length}개 씬의 이미지 및 비디오 프롬프트가 새로운 스타일에 맞춰 즉시 다시 작성됩니다.
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {/* 하단 버튼 영역 */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", borderTop: "1px solid rgba(255, 255, 255, 0.1)", paddingTop: "1rem" }}>
+              <button
+                type="button"
+                onClick={() => setIsStyleModalOpen(false)}
+                disabled={isChangingStyle}
+                style={{
+                  padding: "8px 16px",
+                  fontSize: "13px",
+                  background: "transparent",
+                  border: "1px solid #475569",
+                  color: "#cbd5e1",
+                  borderRadius: "6px",
+                  cursor: isChangingStyle ? "not-allowed" : "pointer"
+                }}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                disabled={isChangingStyle}
+                onClick={() => handleSelectAndApplyStyle(modalSelectedStyleId)}
+                style={{
+                  padding: "8px 20px",
+                  fontSize: "13px",
+                  fontWeight: "bold",
+                  background: "linear-gradient(135deg, #e11d48 0%, #be123c 100%)",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: isChangingStyle ? "not-allowed" : "pointer",
+                  boxShadow: "0 2px 10px rgba(225, 29, 72, 0.4)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px"
+                }}
+              >
+                {isChangingStyle ? "스타일 적용 및 프롬프트 생성 중..." : "✨ 선택한 스타일 적용하기"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );

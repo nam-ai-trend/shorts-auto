@@ -23,7 +23,9 @@ assets/bgm/*
 *.mov
 *.wav
 *.mp3
+!assets/reference_voice/reference_voice.mp3
 *.m4a
+
 
 # Internal docs & prototype references
 docs/

@@ -12,4 +12,6 @@ export interface ShortsProps {
   subtitles: SubtitleItem[];
   durationInFrames: number;
   title?: string;
+  thumbnailSrc?: string;
+  thumbnailDurationFrames?: number;
 }
