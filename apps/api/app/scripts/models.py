@@ -19,6 +19,23 @@ def clean_text(value: str, field_name: str, max_length: int = 4000) -> str:
     return stripped
 
 
+class FactCheckItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    claim: str = Field(default="", max_length=500)
+    status: str = Field(default="verified", max_length=100)
+    evidence: str = Field(default="", max_length=1000)
+
+
+class LoopDesign(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    loop_type: str = Field(default="", max_length=100)
+    tail_bridge: str = Field(default="", max_length=500)
+    head_hook: str = Field(default="", max_length=500)
+    connected_preview: str = Field(default="", max_length=1200)
+
+
 class ScriptCandidate(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -36,6 +53,8 @@ class ScriptCandidate(BaseModel):
     structure_summary: str = Field(max_length=1200)
     draft_script: str = Field(max_length=5000)
     borrowed_reference_structure: str = Field(max_length=1600)
+    fact_check_qa: list[FactCheckItem] = Field(default_factory=list)
+    loop_design: Optional[LoopDesign] = None
 
     @field_validator(
         "candidate_id",

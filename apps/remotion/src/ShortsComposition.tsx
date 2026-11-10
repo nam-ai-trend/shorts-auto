@@ -66,7 +66,7 @@ export const ShortsComposition: React.FC<ShortsProps> = ({
       {/* 5. 고화질 볼드 숏폼 자막 레이어 */}
       <Subtitles subtitles={subtitles} />
 
-      {/* 6. 0~2초 오프닝 타이틀 오버레이 레이어 */}
+      {/* 6. 쇼츠 상단 고정 타이틀 오버레이 레이어 (처음부터 끝까지 Always-On) */}
       <TitleOverlay title={title} />
     </AbsoluteFill>
   );

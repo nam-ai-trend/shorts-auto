@@ -20,8 +20,8 @@ CORE_CAMERA_MOVEMENTS: list[CameraMovementItem] = [
         category="⚡ 임팩트 & 반전",
         summary="충격적인 팩트 발표나 상식 충돌 순간, 피사체로 매우 빠르고 강력하게 급접근",
         best_for=["0~3초 상식 충돌 후킹", "충격적인 수치 공개", "극적 반전 및 위기 순간"],
-        prompt_syntax="camera: crash zoom in. movement: snap the lens rapidly toward {subject}. speed: very fast and punchy. framing: keep {subject} readable through the sudden scale change. end: land on a bold tight composition.",
-        example_prompt="camera: crash zoom in. movement: snap the lens rapidly toward the miniature character's face. speed: very fast and punchy. framing: keep eyes readable through sudden scale change. end: land on an intense close-up with dramatic lighting.",
+        prompt_syntax="camera: crash zoom in. movement: snap the lens rapidly toward {subject} with dramatic 3D parallax. speed: very fast and punchy. framing: keep {subject} strictly anchored and readable without morphing. end: land on a bold tight composition.",
+        example_prompt="camera: crash zoom in. movement: snap the lens rapidly toward the miniature character with dramatic 3D depth. speed: very fast and punchy. framing: keep character strictly anchored and readable without morphing. end: land on an intense close-up with dramatic rim lighting.",
     ),
     CameraMovementItem(
         id="whip_pan",
@@ -110,8 +110,8 @@ CORE_CAMERA_MOVEMENTS: list[CameraMovementItem] = [
         category="🏔️ 스케일 & 공간감",
         summary="빠르게 뒤로 멀어지며 주인공이 거대한 세계의 극히 일부임을 보여주는 압도적 스케일",
         best_for=["마지막 엔딩 클리프행어/펀치라인", "압도적 총량(조/억 단위) 체감", "거대한 자연/우주 스케일"],
-        prompt_syntax="camera: aerial drone pull back. movement: fly smoothly backward and upward away from {subject}. speed: accelerating sweeping pull back. framing: {subject} rapidly shrinks into a vast, sprawling environment. end: majestic wide landscape revealing grand scale.",
-        example_prompt="camera: aerial drone pull back. movement: fly smoothly backward and upward away from the lone character. speed: accelerating sweeping pull back. framing: character shrinks into an infinite ocean of clay dunes. end: majestic wide landscape revealing infinite scale.",
+        prompt_syntax="camera: aerial crane and drone pull back. movement: sweep backward and upward away from {subject} with deep 3D parallax. speed: dynamic and expansive. framing: {subject} remains steadfast and in sharp focus as surrounding environment expands. end: wide composition revealing grand scale, strictly no morphing or melting.",
+        example_prompt="camera: aerial crane and drone pull back. movement: sweep backward and upward away from the miniature clay character with deep 3D parallax. speed: dynamic and expansive. framing: character remains steadfast and in sharp focus as vast lunar horizon expands. end: wide composition revealing grand scale, strictly no morphing or melting.",
     ),
     CameraMovementItem(
         id="static_shot",

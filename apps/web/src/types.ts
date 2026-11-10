@@ -125,6 +125,19 @@ export interface ReferenceSearchPayload {
   readonly max_results: number;
 }
 
+export interface FactCheckItem {
+  readonly claim: string;
+  readonly status: string;
+  readonly evidence: string;
+}
+
+export interface LoopDesign {
+  readonly loop_type?: string;
+  readonly tail_bridge: string;
+  readonly head_hook: string;
+  readonly connected_preview: string;
+}
+
 export interface ScriptCandidate {
   readonly candidate_id: string;
   readonly candidate_type: "draft_a" | "draft_b" | "same_topic" | "different_topic";
@@ -140,6 +153,8 @@ export interface ScriptCandidate {
   readonly structure_summary: string;
   readonly draft_script: string;
   readonly borrowed_reference_structure: string;
+  readonly fact_check_qa?: readonly FactCheckItem[];
+  readonly loop_design?: LoopDesign | null;
 }
 
 export interface TtsValidationResult {

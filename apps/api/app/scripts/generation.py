@@ -122,7 +122,7 @@ def build_candidate_generation_prompt(
 기존의 쇼츠 대본이 밋밋하고 빈약했던 이유는 구체적인 사실(Fact)과 체감 수치(Figure) 없이 추상적인 설명만 늘어놓았기 때문입니다.
 이번 대본은 시청자가 1초도 눈을 뗄 수 없는 **정밀한 과학적 팩트와 철저히 계산된 체감 환산 수치**를 반드시 담아야 합니다.
 
-### [대본 작성 4대 절대 규칙]
+### [대본 작성 5대 절대 규칙]
 1. 🎯 정밀한 마이크로 팩트 & 구조적 디테일 (Micro Facts & Detail):
    - "엄청 빠릅니다", "놀랍습니다", "대단합니다" 같은 추상적이고 뻔한 수식어는 절대 금지!
    - 해당 주제의 미세한 과학적/생물학적/물리적 메커니즘과 정밀한 수치를 최소 2개 이상 구체적으로 포함하세요.
@@ -141,11 +141,28 @@ def build_candidate_generation_prompt(
      (예: "기껏해야 얼마 안 되겠지 생각하겠지만, 이거 완전 아닙니다!", "왜 아무도 이 사실을 모를까요?")
    - [3~15초: 의문 심화 & 관찰 포인트] 시청자가 예측하지 못한 의외의 질문과 낯선 관찰 포인트를 던져 "대체 왜?" 호기심 갭 극대화.
    - [15~35초: 상태 변화 & 팩트 폭탄] 설명조로 늘어지지 않고, "더 소름 돋는 건...", "그런데 여기서 반전이 일어납니다"처럼 국면이 바뀌는 전환점과 함께 미세 팩트와 작동 원리를 쉴 틈 없이 전개.
-   - [35~50초: 결말 인지 보상 & 펀치라인] 압도적 총량과 체감 환산 수치로 지적 카타르시스를 주고, 댓글을 달고 공유할 수밖에 없는 여운 넘치는 마지막 한마디(클리프행어/펀치라인)로 마무리.
+   - [35~50초: 결말 인지 보상 & 브릿지] 압도적 총량과 체감 환산 수치로 지적 카타르시스를 주고, 아래 5번의 무한 루프 꼬리 브릿지로 연결.
 
 4. ⏱️ 대본 분량 및 구어체 어조 (엄수!):
    - 분량: 각 draft_script는 **45~55초 분량 (공백 포함 420자 ~ 520자 내외, 8~10개 문장)**으로 꽉 찬 밀도로 작성하세요. (250~350자는 너무 짧아 내용이 빈약해지니 절대 금지!)
    - 어조: 시청자에게 직접 속삭이듯 말하는 찰진 구어체 낭독 톤 ("~거든요!", "~다니까요!", "~죠?"). 딱딱한 백과사전식 문장 절대 금지.
+
+5. 🔄 수미상관 무한 루프(Seamless Loop) 엔딩 & 🛡️ 팩트체크 QA (Fact-Check QA) 절대 규칙 [위반 시 엄격히 재생성 대상]:
+   - [🚨 규칙 1: 대본 시작 문장 = hook 완벽 일치]:
+     * 각 draft_script의 맨 첫 문장은 반드시 메타데이터의 `hook` 대사와 토시 하나 틀리지 않고 100% 동일하게 시작해야 합니다.
+   - [🚨 규칙 2: 대본 맨 끝은 반드시 tail_bridge로 끝나야 하며, 첫 문장(hook)을 대본 끝에 다시 붙이지 말 것!]:
+     * 유튜브 쇼츠는 영상이 끝나면 플레이어가 자동으로 처음(0초)으로 되돌아가 재생됩니다.
+     * 따라서 대본 맨 끝에 첫 문장(hook)을 다시 한 번 낭독하거나 덧붙이면 절대 안 됩니다! (그렇게 하면 첫 문장이 두 번 연속 낭독되는 치명적인 오류가 발생합니다!)
+     * 대본의 맨 마지막 단어는 반드시 첫 문장(`hook`)의 첫 주어/명사를 수식하는 불완전한 **관형사형 꼬리 어미(`tail_bridge`: 예: "~해버린", "~했던", "~라는 사실 바로")**로 끝나야 합니다. (마침표나 물음표 없이 끝낼 것!)
+     * ❌ 치명적 오류 1: 대본 맨 뒤에 첫 문장을 또 붙이는 행위 (예: "...지구상에서 싹 사라져버린 공룡을 멸종시킨 소행성이 서울에 떨어지면 구덩이는 어디까지 생길까요?") -> 절대 금지!
+     * ❌ 치명적 오류 2: 질문이나 마침표로 끝내기 (예: "...구멍만 있을까요?", "...사실입니다.") -> 절대 금지!
+     * ⭕ 완벽한 draft_script 끝부분 예시:
+       "...그렇게 완성된 구덩이는 지름 약 180km로 서울시청은 물론 춘천과 천안시청까지 집어삼킨다는 사실, 지구상에서 싹 사라져버린" (여기서 대본 끝! 마침표 없음!)
+     * 🚫 기계적 클리셰("~의 장본인", "~의 시초")는 금지하며, 해당 주제의 고유 동작(파괴, 폭발, 회전, 분열, 냉각 등)을 담은 동사/형용사로 브릿지를 창작하세요.
+   - [🚨 규칙 3: 팩트체크 & 물리/수학 단위 환산 엄수]:
+     * 충격파 속도, 중력 변화, 질량, 면적 등 모든 수치는 실제 물리 법칙과 과학적 사실에 부합해야 합니다.
+     * 암석 충격파 속도가 초당 1,200km라거나(실제 암석 내 지진파 속도는 초당 5~8km 내외), 중력 가속도와 힘/무게 환산이 엉터리인 황당한 날조(할루시네이션)는 절대 금지합니다.
+     * 실제 학술 데이터와 정확한 산수(곱셈/나눗셈)로 검산된 수치만 사용하고, 그 근거를 `fact_check_qa`에 명시하세요.
 
 ### [2가지 버전의 뚜렷한 연출 차별화 - 단, 소재는 둘 다 위 [선택된 확정 주제] 100% 동일 적용!]
 - Draft A (candidate_id: "draft_a", candidate_type: "draft_a"):
@@ -193,8 +210,26 @@ def build_candidate_generation_prompt(
       "why_it_can_work": "알고리즘에서 터질 수밖에 없는 이유",
       "main_curiosity_question": "끝까지 보게 만드는 핵심 호기심 질문",
       "structure_summary": "전체 구성 요약 (소재 이해 -> 후킹 -> 상태변화 -> 결말 보상)",
-      "draft_script": "실제 나레이션 대본 전체 (공백 포함 420~520자 내외, 팩트와 숫자가 꽉 찬 구어체)",
-      "borrowed_reference_structure": "레퍼런스에서 차용한 공식 및 구조 설명"
+      "draft_script": "실제 나레이션 대본 전체 (공백 포함 420~520자. 반드시 위 hook으로 첫 문장을 시작하고, 맨 마지막은 마침표/물음표 없이 hook을 자석처럼 수식하는 불완전한 tail_bridge로 끝내야 함)",
+      "borrowed_reference_structure": "레퍼런스에서 차용한 공식 및 구조 설명",
+      "fact_check_qa": [
+        {{
+          "claim": "대본에 포함된 첫 번째 핵심 과학/수치 주장",
+          "status": "verified",
+          "evidence": "수학적 계산 및 실제 학술/과학 사실에 기반한 명확한 검증 근거"
+        }},
+        {{
+          "claim": "대본에 포함된 두 번째 핵심 과학/수치 주장",
+          "status": "verified",
+          "evidence": "수학적 계산 및 실제 학술/과학 사실에 기반한 명확한 검증 근거"
+        }}
+      ],
+      "loop_design": {{
+        "loop_type": "수식형 / 인과형 / 동작묘사형 등 창작한 루프 유형",
+        "tail_bridge": "대본 맨 마지막 꼬리 브릿지 문구 (예: 지구상에서 싹 사라져버린)",
+        "head_hook": "대본 첫 문장 후킹 대사",
+        "connected_preview": "[꼬리 브릿지] [첫 문장 후킹]이 자석처럼 자연스럽게 하나로 이어지는 프리뷰"
+      }}
     }},
     {{
       "candidate_id": "draft_b",
@@ -213,8 +248,26 @@ def build_candidate_generation_prompt(
       "why_it_can_work": "알고리즘에서 터질 수밖에 없는 이유",
       "main_curiosity_question": "끝까지 보게 만드는 핵심 호기심 질문",
       "structure_summary": "전체 구성 요약 (소재 이해 -> 후킹 -> 상태변화 -> 결말 보상)",
-      "draft_script": "실제 나레이션 대본 전체 (공백 포함 420~520자 내외, 팩트와 숫자가 꽉 찬 구어체)",
-      "borrowed_reference_structure": "레퍼런스에서 차용한 공식 및 구조 설명"
+      "draft_script": "실제 나레이션 대본 전체 (공백 포함 420~520자. 반드시 위 hook으로 첫 문장을 시작하고, 맨 마지막은 마침표/물음표 없이 hook을 자석처럼 수식하는 불완전한 tail_bridge로 끝내야 함)",
+      "borrowed_reference_structure": "레퍼런스에서 차용한 공식 및 구조 설명",
+      "fact_check_qa": [
+        {{
+          "claim": "대본에 포함된 첫 번째 핵심 과학/수치 주장",
+          "status": "verified",
+          "evidence": "수학적 계산 및 실제 학술/과학 사실에 기반한 명확한 검증 근거"
+        }},
+        {{
+          "claim": "대본에 포함된 두 번째 핵심 과학/수치 주장",
+          "status": "verified",
+          "evidence": "수학적 계산 및 실제 학술/과학 사실에 기반한 명확한 검증 근거"
+        }}
+      ],
+      "loop_design": {{
+        "loop_type": "수식형 / 인과형 / 동작묘사형 등 창작한 루프 유형",
+        "tail_bridge": "대본 맨 마지막 꼬리 브릿지 문구 (예: 단 몇 초 만에 모든 것을 삼켜버린)",
+        "head_hook": "대본 첫 문장 후킹 대사",
+        "connected_preview": "[꼬리 브릿지] [첫 문장 후킹]이 자석처럼 자연스럽게 하나로 이어지는 프리뷰"
+      }}
     }}
   ]
 }}
@@ -270,7 +323,13 @@ Return JSON only with this exact shape:
 핵심 원칙:
 1. 분량 유지: 공백 포함 400~520자 내외. 핵심 팩트와 수치, 예시를 절대 생략하지 마세요.
 2. 구어체 리듬감: 말하듯이 자연스럽고 호흡이 살아있는 구어체 문장으로 다듬되, 쉼표(,)와 마침표(.)를 적절히 배치하여 낭독 시 적절한 호흡과 강세를 살리세요.
-3. 팩트 정합성: 모든 수치와 비교는 실제 과학적 데이터와 수학적 단위 환산에 부합해야 하며, 63빌딩 등 특정 랜드마크를 기계적으로 쓰는 억지 비유는 금지합니다.
+3. 팩트 정합성 및 수치 검산: 모든 수치와 비교는 실제 과학적 데이터와 수학적 단위 환산(곱셈/나눗셈)에 철저히 부합해야 하며, 랜드마크 억지 비유는 금지합니다.
+4. 🔄 수미상관 무한 루프(Seamless Loop) 엔딩 절대 규칙:
+   - [🚨 치명적 절대 금지]: 대본 맨 끝에 첫 문장(hook)을 다시 한 번 낭독하거나 덧붙이지 마세요!
+     유튜브 쇼츠 플레이어가 자동으로 0초(처음)로 되감기 때문에, 대본 끝에 첫 문장을 또 쓰면 첫 문장이 두 번 연속 낭독되는 치명적인 오류가 발생합니다!
+   - [올바른 결말]: 대본의 맨 마지막 단어는 반드시 첫 문장(hook)을 자석처럼 수식하는 불완전한 꼬리 브릿지(Tail Bridge, 예: '단 몇 초 만에 내부를 뒤흔들어버린', '지구상에서 싹 사라져버린')로 마침표나 물음표 없이 끝내야 합니다.
+   - ❌ 절대 금지: "...단 몇 초 만에 내부를 뒤흔들어버린 달에 만약 구멍을 뚫는다면, 대체 어떻게 될까요?" (첫 문장을 또 붙이는 행위 절대 금지!)
+   - ⭕ 올바른 예: "...단 몇 초 만에 내부를 뒤흔들어버린" (여기서 대본 종료! 마침표 없음!)
 
 Strict TTS rules (절대 엄수):
 - all numbers are written in Korean pronunciation (e.g. 160억 -> 백육십억, 6,400개 -> 육천사백 개, 6개 -> 여섯 개, 30번 -> 서른 번, 1/25 -> 이십오분의 일, 35kg -> 삼십오 킬로그램, 150m -> 백오십 미터).
@@ -288,11 +347,50 @@ Feedback:
 """.strip()
 
 
+def sanitize_script_loop_candidate(candidate: ScriptCandidate) -> ScriptCandidate:
+    script = candidate.draft_script.strip()
+    hook = candidate.hook.strip()
+
+    # 1. 스크립트 끝에 hook 대사가 중복으로 붙어있는 경우 잘라내기
+    hook_clean = re.sub(r"[?!.,\s]+$", "", hook)
+    if hook_clean:
+        pattern = re.compile(re.escape(hook_clean) + r"[\s?!.]*$", re.IGNORECASE)
+        script = pattern.sub("", script).strip()
+
+    # hook의 앞부분(15자 이상)이 대본 후반부에 다시 복붙된 경우 제거
+    if len(hook_clean) >= 15:
+        prefix = hook_clean[:18]
+        if prefix in script[len(script) // 2 :]:
+            idx = script.rfind(prefix)
+            if len(script) - idx < 120:
+                script = script[:idx].strip()
+
+    # 2. loop_design의 tail_bridge가 대본 맨 마지막에 오도록 보정
+    if candidate.loop_design and candidate.loop_design.tail_bridge:
+        tb = candidate.loop_design.tail_bridge.strip()
+        tb_clean = re.sub(r"[?!.,\s]+$", "", tb)
+        if tb_clean:
+            if tb_clean in script:
+                idx = script.rfind(tb_clean)
+                script = script[: idx + len(tb_clean)].strip()
+            else:
+                script = re.sub(r"[?!.,\s]+$", "", script).strip()
+                script = f"{script}, {tb_clean}"
+
+    # 3. 무한 루프(다음 영상 첫 문장으로 연결)를 위해 맨 끝의 마침표/물음표 종결 부호 제거
+    script = re.sub(r"[?!.]+$", "", script).strip()
+    candidate.draft_script = script
+    return candidate
+
+
 def validate_candidate_payload(payload: dict) -> list[ScriptCandidate]:
     try:
         candidates = CandidateGenerationPayload.model_validate(payload).candidates
     except ValidationError as exc:
         raise ValueError(str(exc)) from exc
+
+    # 모든 대본 후보에 대해 무한 루프 엔딩 정돈(sanitize) 적용
+    candidates = [sanitize_script_loop_candidate(c) for c in candidates]
 
     if len(candidates) == 2:
         return candidates
@@ -325,9 +423,39 @@ def validate_candidate_payload(payload: dict) -> list[ScriptCandidate]:
     raise ValueError("candidate payload must include either 2 draft candidates or 4 candidates")
 
 
-def extract_final_script(payload: dict) -> str:
+def sanitize_final_script_loop(final_script: str, hook: str = "", tail_bridge: str = "") -> str:
+    script = final_script.strip()
+    hook = hook.strip()
+
+    # 1. hook 대사 또는 hook의 핵심 문구가 스크립트 끝에 중복으로 붙어있는 경우 잘라내기
+    hook_clean = re.sub(r"[?!.,\s]+$", "", hook)
+    if hook_clean:
+        pattern = re.compile(re.escape(hook_clean) + r"[\s?!.]*$", re.IGNORECASE)
+        script = pattern.sub("", script).strip()
+
+    # 혹시 hook의 앞 12자 이상이 스크립트 후반부(마지막 150자 이내)에 또 나타나면 잘라내기
+    if len(hook_clean) >= 12:
+        prefix = hook_clean[:15]
+        if prefix in script[len(script) // 2 :]:
+            idx = script.rfind(prefix)
+            if len(script) - idx < 150:
+                script = script[:idx].strip()
+
+    # 2. tail_bridge가 있다면 tail_bridge 뒤에 붙은 군더더기/중복 제거
+    tb_clean = re.sub(r"[?!.,\s]+$", "", tail_bridge.strip())
+    if tb_clean and tb_clean in script:
+        idx = script.rfind(tb_clean)
+        script = script[: idx + len(tb_clean)].strip()
+
+    # 3. 무한 루프(0초 첫 문장으로의 부드러운 연결)를 위해 맨 끝의 마침표/물음표/느낌표 제거
+    script = re.sub(r"[?!.]+$", "", script).strip()
+    return script
+
+
+def extract_final_script(payload: dict, hook: str = "", tail_bridge: str = "") -> str:
     try:
-        return FinalScriptPayload.model_validate(payload).final_script.strip()
+        raw_script = FinalScriptPayload.model_validate(payload).final_script.strip()
+        return sanitize_final_script_loop(raw_script, hook, tail_bridge)
     except ValidationError as exc:
         raise ValueError(str(exc)) from exc
 

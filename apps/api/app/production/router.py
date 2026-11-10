@@ -37,6 +37,7 @@ from app.production.service import (
     generate_scene_video_for_project,
     generate_thumbnail_image_for_project,
     generate_tts_for_project,
+    get_flow_worker_count,
     get_production_state,
     pass_continuity_frame_to_next_scene,
     recommend_motion_for_scene,
@@ -283,9 +284,26 @@ def create_production_router(
         try:
             path = project_dir(outputs, project_id)
             state = get_production_state(path, project_id)
-            for sc in state.video_scenes:
-                if not sc.is_locked:
+            unlocked_scenes = [sc for sc in state.video_scenes if not sc.is_locked]
+
+            # Flow CLI는 멀티 워커 프로필 풀 개수(기본 3개)만큼, API 기반(Higgsfield/DALL-E)은 최대 4개 병렬 실행
+            is_flow = model.startswith("flow_") or "flow" in model.lower()
+            worker_limit = get_flow_worker_count() if is_flow else 4
+            max_workers = min(worker_limit, len(unlocked_scenes) or 1)
+
+            if max_workers > 1:
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = [
+                        executor.submit(generate_scene_image_for_project, path, sc.scene_id, settings, model)
+                        for sc in unlocked_scenes
+                    ]
+                    for f in futures:
+                        f.result()
+            else:
+                for sc in unlocked_scenes:
                     generate_scene_image_for_project(path, sc.scene_id, settings, model_name=model)
+
             return get_production_state(path, project_id).model_dump()
         except HTTPException:
             raise

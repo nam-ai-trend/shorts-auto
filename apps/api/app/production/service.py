@@ -613,29 +613,44 @@ def generate_concept_kit_and_video_scenes(
 - **5. 텍스트 완전 배제 (Strict Negative Constraint)**:
   - 이미지 내에 어떠한 글자, 숫자, 기호, 워터마크도 절대 나타나선 안 됩니다:
     `Strictly NO text, NO letters, NO numbers, NO labels, NO typography, NO watermark.`
-- **6. 포맷**: 반드시 수직 9:16 비율(`vertical 9:16 portrait aspect ratio`)의 영문 프롬프트로 작성하세요.
+- **6. 단일 뷰포트 원칙 (Single Continuous Viewport - 분할/콜라주 엄격 금지 - 절대 필수)**:
+  - 이미지는 반드시 단 하나의 카메라 뷰포트로 구성되어야 합니다. '360-degree view', 'split screen', 'collage', 'quad view', 'panels' 등 이미지를 여러 개로 쪼개는 키워드는 절대 사용 금지:
+    `Single continuous camera viewport only, strictly NO split-screen, NO multi-panel collage, NO grid layout, NO 4-way split.`
+- **7. 포맷**: 반드시 수직 9:16 비율(`vertical 9:16 portrait aspect ratio`)의 영문 프롬프트로 작성하세요.
 
 ======================================================================
-[규칙 2: 쇼츠 전문 카메라 모션 (camera_movement & video_prompt) 가이드라인]
+[규칙 2: 쇼츠 전문 카메라 모션 (camera_movement & video_prompt) 역동성 & 연속성 가이드라인]
 ======================================================================
-쇼츠의 몰입감과 템포를 위해, 다음 12대 핵심 카메라 모션 중 각 씬의 역할(후킹, 반전, 설명, 클라이맥스)에 가장 적합한 모션을 선정하여 `camera_movement`에 지정하고, aicameramovements.com 표준 4단 문법으로 `video_prompt`를 작성하세요:
+쇼츠의 높은 몰입감과 타격감 있는 템포를 유지하면서도, **1개의 씬 안에서 화면이 녹아내리거나(Morphing) 따로 놀며 튀는 현상을 원천 방지**하기 위해 다음 4대 원칙을 철저히 적용하여 `video_prompt`를 작성하세요:
+
+- **1. 피사체 앵커 락 (Subject Anchor Lock - 절대 필수)**:
+  - `video_prompt`에는 반드시 `start_image_prompt`의 핵심 주인공 피사체(Hero Object/Character)를 명시적으로 주어로 지정하세요.
+  - 카메라가 움직이는 동안 피사체가 사라지거나 녹아내리지(Melting) 않고 온전히 형태를 유지하도록 명시하세요:
+    `The [Hero Subject] remains steadfast and in sharp focus throughout the movement, strictly preventing disappearing, melting, or morphing glitches.`
+- **2. 3D 입체 패럴랙스 궤적 (Dynamic 3D Parallax Trajectory - 밋밋함 제거)**:
+  - 단순 평면 2D 줌/풀백 대신, 피사체와 배경의 깊이감(Parallax)이 극대화되는 입체적 3D 궤적(Dynamic Arc Orbit, Low-angle Crane-up, Parallax Depth Push/Pull)을 부여하여 영화적 역동성을 살리세요.
+- **3. 피사체 스톱모션 액션 & 환경 모션 (Subject & Environmental Dynamics - 역동성 극대화)**:
+  - 카메라만 움직여서 밋밋해지는 것을 방지하기 위해, 피사체 자체의 점토 스톱모션 반응 제스처(`clay stop-motion micro-gestures`)와 환경 물리 효과(`dramatic moving studio rim lighting, subtle clay dust puff, tactile surface vibration`)를 함께 주입하세요.
+- **4. 단일 테이크 연속성 (Unbroken Continuous Take)**:
+  - 한 씬 안에서 갑작스러운 화면 변형이나 점프가 일어나지 않도록 단일 테이크로 지정하세요:
+    `Single continuous unbroken camera take, smooth flowing trajectory, absolutely no jump cuts, no morphing artifacts.`
 
 - 12대 핵심 모션 ID 목록:
-  1) `crash_zoom_in`: 0~3초 상식 충돌 후킹, 충격적인 팩트 발표 시 급격한 타격감 있는 줌인
-  2) `whip_pan`: '그런데 여기서 반전이 일어납니다' 등 국면 전환 시 신속한 수평 채찍 회전과 전환
-  3) `slow_zoom_in`: 호기심 유발 및 미세 과학 메커니즘으로의 점진적 몰입/긴장감 고조
-  4) `slow_zoom_out`: 숨겨진 실체나 주변 환경의 실체를 서서히 드러내며 시야 확장
-  5) `orbit`: 피사체 주위를 360도 회전하며 3D 입체감과 오브젝트 형태 감상
-  6) `arc_shot`: 얕은 곡선 궤적으로 돌아가 피사체와 배경의 거리감(시차) 강조
-  7) `tracking_shot`: 움직이는 피사체/물질의 흐름을 일정 거리 유지하며 역동적 추적
-  8) `low_tracking`: 지면 밀착 로우 앵글로 피사체를 거대하고 웅장하게 위압감 있게 연출
-  9) `push_past`: 전경 피사체를 스쳐 지나가며 다음 공간/다음 씬 오브젝트를 원테이크로 공개
-  10) `pedestal_up`: 수직으로 상승하며 거대한 높이나 스케일, 상승하는 에너지를 공개
-  11) `drone_pull_back`: 빠르게 뒤로 멀어지며 엔딩 클리프행어/압도적 총량 체감
-  12) `static_shot`: 카메라를 고정하여 미세한 액션이나 텍스처 자체에 안정적 집중
+  1) `crash_zoom_in`: 0~3초 상식 충돌 후킹, 충격적인 팩트 발표 시 피사체로의 타격감 있는 초고속 3D 줌인
+  2) `whip_pan`: '그런데 여기서 반전이 일어납니다' 등 국면 전환 시 신속한 다이내믹 수평 스윕과 포커스 이동
+  3) `slow_zoom_in`: 호기심 유발 및 미세 과학 메커니즘으로의 점진적 몰입과 원근감(Parallax) 고조
+  4) `slow_zoom_out`: 피사체를 앵커로 유지하며 주변 세계관의 압도적 스케일을 서서히 공개
+  5) `orbit`: 피사체 주위를 역동적인 곡선으로 3D 궤도 회전하며 입체감과 텍스처를 극대화
+  6) `arc_shot`: 피사체와 배경 사이의 깊은 시차(Parallax)를 강조하는 다이내믹 호 궤적 글라이딩
+  7) `tracking_shot`: 움직이는 피사체/물질의 궤적을 밀착하여 긴장감 있게 추적
+  8) `low_tracking`: 지면 밀착 로우 앵글에서 피사체를 웅장하고 위압감 있게 올려다보는 다이내믹 무브먼트
+  9) `push_past`: 전경 피사체를 강렬하게 스쳐 지나가며 다음 공간/핵심 오브젝트로 입체적 진입
+  10) `pedestal_up`: 수직으로 역동적으로 상승 크레인 업하며 거대한 스케일과 에너지를 공개
+  11) `drone_pull_back`: 피사체 앵커를 중심에 두고 다이내믹하게 상공으로 크레인 풀백하여 광활한 지평선 조망
+  12) `static_shot`: 삼각대에 안정적으로 고정하되, 피사체 자체의 스톱모션 액션과 드라마틱한 조명 변화 집중
 
-- **video_prompt 작성 공식 (aicameramovements 표준 4단 포맷 - 영문 작성)**:
-  `camera: {{모션명}}. movement: {{현재 시작 이미지 상태에서 물리적 이동 경로}}. speed: {{모션 속도 및 템포}}. framing: {{피사체 구도 및 프레이밍}}. end: {{종료 지점 구도 및 다음 씬으로의 자연스러운 원테이크 인계 상태, no jump cuts}}.`
+- **video_prompt 작성 공식 (역동성 & 피사체 보존 결합 포맷 - 영문 작성)**:
+  `Cinematic dynamic [camera_movement] in [style] style: The [Hero Subject from start image] remains clearly anchored and in sharp focus, [dynamic subject stop-motion action/gesture]. The camera [dynamic 3D physical trajectory with depth & parallax], while dramatic studio rim lighting highlights tactile clay textures. Single unbroken shot, strictly no morphing, no melting, no jump cuts.`
 
 ======================================================================
 [규칙 3: continuity 필드]
@@ -787,6 +802,409 @@ def _generate_fallback_clay_image(target_path: Path, scene_id: int, prompt_summa
         target_path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
 
 
+FLOW_IMAGE_MODELS: dict[str, str] = {
+    "flow_nano_pro": "nano-pro",
+    "flow_imagen_4": "imagen4",
+    "flow_nano_2_1": "nano2.1",
+    "flow_nano_2_lite": "nano2-lite",
+    "nano_banana_pro_flow": "nano-pro",
+}
+
+FLOW_VIDEO_MODELS: dict[str, str] = {
+    "flow_veo_fast": "veo-fast",
+    "flow_veo_quality": "veo-quality",
+    "flow_veo_lite": "veo-lite",
+    "flow_omni_flash": "omni-flash",
+    "veo_3_1_flow": "veo-fast",
+}
+
+FLOW_MAX_PARALLEL_WORKERS = int(os.environ.get("FLOW_MAX_PARALLEL_WORKERS", "3"))
+_flow_pool_lock = __import__("threading").Lock()
+_flow_profile_queue: Any = None
+_flow_worker_profiles: list[str] = []
+
+
+def _get_gflow_home() -> Path:
+    env_home = os.environ.get("GFLOW_CLI_HOME")
+    if env_home:
+        return Path(env_home).expanduser().resolve()
+    mac_home = Path.home() / "Library/Application Support/gflow-cli"
+    if mac_home.exists():
+        return mac_home
+    return Path.home() / ".local/share/gflow-cli"
+
+
+def _sync_worker_profile_dir(src_dir: Path, dst_dir: Path) -> None:
+    """기본 Flow 프로필의 세션을 워커 프로필 디렉토리로 안전하게 복제/동기화합니다 (싱글톤 락 제외)."""
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    ignore_names = {"SingletonLock", "SingletonCookie", "SingletonSocket", "RunningChromeVersion", "lockfile"}
+    for item in src_dir.iterdir():
+        if item.name in ignore_names or item.name.startswith("Singleton"):
+            continue
+        target = dst_dir / item.name
+        try:
+            if item.is_dir():
+                shutil.copytree(
+                    item,
+                    target,
+                    dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("Singleton*", "RunningChromeVersion", "lockfile"),
+                )
+            else:
+                shutil.copy2(item, target)
+        except Exception:
+            pass
+
+
+def _ensure_flow_worker_profiles(target_workers: int = FLOW_MAX_PARALLEL_WORKERS) -> list[str]:
+    """
+    Google Flow CLI 병렬 실행을 위해 멀티 워커 프로필 풀(기본 3개)을 자동 준비합니다.
+    동일 프로필 디렉토리는 크롬 user-data-dir 및 ProfileLease(flock)에 의해 동시 실행이 차단되므로,
+    기본 프로필을 독립된 워커 프로필(profile_<base>_w2, _w3 등)로 분리하여 동시 병렬 실행을 보장합니다.
+    """
+    import sqlite3
+
+    gflow_home = _get_gflow_home()
+    if not gflow_home.exists():
+        return ["default"]
+
+    # 1. 기본 프로필 탐색
+    default_profile = None
+    cfg_file = gflow_home / "config.toml"
+    if cfg_file.exists():
+        try:
+            m = re.search(r'default_profile\s*=\s*"([^"]+)"', cfg_file.read_text(encoding="utf-8"))
+            if m:
+                default_profile = m.group(1).strip()
+        except Exception:
+            pass
+
+    existing_dirs = sorted(
+        [d for d in gflow_home.iterdir() if d.is_dir() and d.name.startswith("profile_") and (d / "Default" / "Cookies").exists()],
+        key=lambda p: p.name,
+    )
+    if not existing_dirs:
+        return [default_profile or "default"]
+
+    base_dir = None
+    if default_profile:
+        cand = gflow_home / f"profile_{default_profile}"
+        if cand.exists() and (cand / "Default" / "Cookies").exists():
+            base_dir = cand
+    if base_dir is None:
+        base_dir = existing_dirs[0]
+
+    base_name = base_dir.name[len("profile_"):]
+
+    # 2. 워커 프로필 생성 및 최신 쿠키 동기화
+    worker_names: list[str] = [base_name]
+    for idx in range(2, target_workers + 1):
+        w_name = f"{base_name}_w{idx}"
+        w_dir = gflow_home / f"profile_{w_name}"
+        base_cookies = base_dir / "Default" / "Cookies"
+        w_cookies = w_dir / "Default" / "Cookies"
+
+        need_sync = not w_cookies.exists()
+        if not need_sync and base_cookies.exists():
+            try:
+                # 원본 프로필의 쿠키가 워커보다 1시간 이상 최신이면 갱신
+                if base_cookies.stat().st_mtime - w_cookies.stat().st_mtime > 3600:
+                    need_sync = True
+            except Exception:
+                pass
+
+        if need_sync:
+            _sync_worker_profile_dir(base_dir, w_dir)
+
+        if (w_dir / "Default" / "Cookies").exists():
+            worker_names.append(w_name)
+
+    # 사용자가 별도로 등록한 다른 계정 프로필도 있으면 풀에 추가
+    for d in existing_dirs:
+        p_name = d.name[len("profile_"):]
+        if p_name not in worker_names:
+            worker_names.append(p_name)
+
+    # 3. gflow.db profiles 테이블에 워커 프로필 등록 (FK 제약 충족)
+    db_path = gflow_home / "gflow.db"
+    if db_path.exists():
+        try:
+            with sqlite3.connect(str(db_path), timeout=10.0) as conn:
+                cur = conn.cursor()
+                for w_name in worker_names:
+                    w_dir = str(gflow_home / f"profile_{w_name}")
+                    cur.execute(
+                        "INSERT OR IGNORE INTO profiles (name, profile_dir, first_seen_at, last_used_at) "
+                        "VALUES (?, ?, datetime('now'), datetime('now'));",
+                        (w_name, w_dir),
+                    )
+                conn.commit()
+        except Exception:
+            pass
+
+    return worker_names
+
+
+def get_flow_worker_count() -> int:
+    """현재 사용 가능한 Flow 병렬 워커 프로필 수를 반환합니다."""
+    global _flow_profile_queue, _flow_worker_profiles
+    with _flow_pool_lock:
+        if _flow_profile_queue is None:
+            import queue
+            _flow_worker_profiles = _ensure_flow_worker_profiles(FLOW_MAX_PARALLEL_WORKERS)
+            _flow_profile_queue = queue.Queue()
+            for idx, p in enumerate(_flow_worker_profiles):
+                _flow_profile_queue.put((idx, p))
+        return max(1, len(_flow_worker_profiles))
+
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def _acquire_flow_profile(timeout_seconds: float = 900.0):
+    """
+    병렬 요청 시 놀고 있는 Flow 워커 프로필을 스레드 안전하게 하나씩 배정(Lease)하고,
+    작업이 끝나면 쿨다운 후 큐에 반환하는 컨텍스트 매니저입니다.
+    동시 기동으로 인한 구글 Flow 웹 화면 로딩 병목(ui-selector-drift) 및 봇 탐지를 방지하기 위해
+    워커 간 4초 시차(Stagger)와 종료 후 5초 쿨다운을 적용합니다.
+    """
+    import time
+    get_flow_worker_count()
+    worker_idx, profile_name = _flow_profile_queue.get(timeout=timeout_seconds)
+    try:
+        # 동시 시작 시 브라우저 기동 스파이크 완화 및 봇 탐지 방지 계단식 시차 (워커당 4초)
+        if worker_idx > 0:
+            time.sleep(worker_idx * 4.0)
+        yield profile_name
+    finally:
+        # 크롬 프로세스 정리, 구글 세션 세마포어 안정화 및 커널 flock 완전 해제를 위한 5초 쿨다운
+        time.sleep(5.0)
+        _flow_profile_queue.put((worker_idx, profile_name))
+
+
+def _build_flow_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["GFLOW_CLI_TELEMETRY"] = "0"
+    env["GFLOW_CLI_LEASE_WAIT_SECONDS"] = "180"
+    return env
+
+
+def _clean_watermark_if_available(file_path: Path) -> None:
+    """Google Flow / Veo 워터마크 자동 제거 (로컬 cut-mark 스킬 연동)"""
+    remover_script = Path.home() / ".gemini/config/skills/cut-mark/scripts/remove_watermark.py"
+    if not remover_script.exists() or not file_path.exists():
+        return
+    try:
+        import uuid
+        temp_cleaned = file_path.with_name(f"temp_clean_{uuid.uuid4().hex[:8]}_{file_path.name}")
+        cmd = ["python3", str(remover_script), str(file_path), "-o", str(temp_cleaned)]
+        res = subprocess.run(cmd, capture_output=True, timeout=60.0)
+        if res.returncode == 0 and temp_cleaned.exists() and temp_cleaned.stat().st_size > 1000:
+            temp_cleaned.replace(file_path)
+        elif temp_cleaned.exists():
+            temp_cleaned.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _run_flow_image_generate(
+    model_alias: str,
+    prompt: str,
+    output_path: Path,
+    aspect_ratio: str = "9:16",
+    timeout_minutes: int = 10,
+) -> Path:
+    """Google Flow CLI(gflow/flow)를 이용한 고품질 Imagen 이미지 생성 (멀티 워커 병렬 지원)"""
+    # 이전 생성 시도에서 남은 잔여/더미 파일 사전 정리 (오인 방지)
+    output_path.unlink(missing_ok=True)
+    for ext in (".jpg", ".jpeg", ".webp"):
+        output_path.with_suffix(ext).unlink(missing_ok=True)
+
+    gflow_bin = shutil.which("gflow") or shutil.which("flow") or "gflow"
+    env = _build_flow_env()
+    # 이전 생성 시도에서 남은 잔여/더미 파일 사전 정리
+    output_path.unlink(missing_ok=True)
+
+    with _acquire_flow_profile() as profile_name:
+        cmd = [
+            gflow_bin, "image", "t2i", prompt,
+            "--profile", profile_name,
+            "--model", model_alias,
+            "--aspect", aspect_ratio,
+            "-o", str(output_path),
+            "--json",
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout_minutes * 60)
+
+    # gflow-cli는 Google CDN에서 다운로드 시 실제 미디어 포맷(JPEG)에 맞게 확장자를 .jpg 등으로 변경하여 저장함
+    actual_file: Path | None = None
+    if output_path.exists() and output_path.stat().st_size > 0:
+        actual_file = output_path
+    else:
+        for ext in (".jpg", ".jpeg", ".webp"):
+            alt = output_path.with_suffix(ext)
+            if alt.exists() and alt.stat().st_size > 0:
+                actual_file = alt
+                break
+
+    if res.returncode != 0 or not actual_file or actual_file.stat().st_size == 0:
+        err = (res.stderr or res.stdout or f"Exit code {res.returncode}").strip()
+        raise RuntimeError(f"Google Flow 이미지 생성 실패 (profile={profile_name}): {err}")
+
+    # 우측 하단 워터마크 자동 제거
+    _clean_watermark_if_available(actual_file)
+
+    # 파이프라인 표준(PNG)으로 통일
+    if actual_file != output_path:
+        try:
+            from PIL import Image
+            with Image.open(actual_file) as im:
+                im.convert("RGB").save(output_path, "PNG")
+            actual_file.unlink(missing_ok=True)
+        except Exception:
+            shutil.copy2(actual_file, output_path)
+
+    return output_path
+
+
+def _extract_media_id_from_output(err_text: str, profile_name: str) -> str | None:
+    """에러 메시지 또는 해당 워커 프로필의 gflow.db 최신 레코드에서 정확한 media_id를 추출합니다."""
+    # 1차: 에러 출력에서 gflow data download <UUID> 또는 media_id=<UUID> 직접 파싱 (병렬 시 100% 정확)
+    patterns = [
+        r"gflow\s+data\s+download\s+([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})",
+        r"media_id['\"=:\s]+([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})",
+        r"/edit/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})",
+    ]
+    for pat in patterns:
+        m = re.search(pat, err_text)
+        if m:
+            return m.group(1)
+
+    # 2차: gflow.db에서 해당 워커 프로필(profile_name)이 가장 최근 생성한 비디오 에셋 ID 조회
+    try:
+        import sqlite3
+        db_path = _get_gflow_home() / "gflow.db"
+        if db_path.exists():
+            with sqlite3.connect(str(db_path), timeout=10.0) as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT flow_media_id FROM assets WHERE kind='video' AND profile_name=? ORDER BY rowid DESC LIMIT 1;",
+                    (profile_name,),
+                )
+                row = cur.fetchone()
+                if row and row[0]:
+                    return str(row[0])
+    except Exception:
+        pass
+    return None
+
+
+def _run_flow_video_generate(
+    model_alias: str,
+    prompt: str,
+    start_image: Path,
+    output_path: Path,
+    end_image: Path | None = None,
+    duration: int | None = 6,
+    aspect_ratio: str = "9:16",
+    timeout_minutes: int = 15,
+) -> Path:
+    """Google Flow CLI(gflow/flow)를 이용한 Veo 비디오 생성 (멀티 워커 병렬 지원)"""
+    import time
+    import uuid
+
+    gflow_bin = shutil.which("gflow") or shutil.which("flow") or "gflow"
+    env = _build_flow_env()
+    # 이전 생성 시도에서 남은 잔여/더미 파일 사전 정리
+    output_path.unlink(missing_ok=True)
+
+    with _acquire_flow_profile() as profile_name:
+        def build_cmd(use_duration: bool) -> list[str]:
+            c = [
+                gflow_bin, "video", "i2v",
+                "--profile", profile_name,
+                "--model", model_alias,
+                "--aspect", aspect_ratio,
+                "-o", str(output_path),
+                "--json",
+            ]
+            if start_image and start_image.exists():
+                c.extend(["-i", str(start_image)])
+
+            if end_image and end_image.exists() and model_alias in ("omni-flash",):
+                c.extend(["-e", str(end_image)])
+
+            if use_duration:
+                d_val = "10" if (duration and duration >= 8 and model_alias == "omni-flash") else ("8" if duration and duration >= 8 else "6")
+                c.extend(["--duration", d_val])
+
+            c.append(prompt)
+            return c
+
+        # 1차: duration 지정 실행 (계정/모델 코호트에서 duration 컨트롤 미지원 시 2차로 즉시 폴백)
+        use_duration_first = bool(duration)
+        cmd = build_cmd(use_duration=use_duration_first)
+        res = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout_minutes * 60)
+
+        err_text = (res.stderr or "") + (res.stdout or "")
+        if use_duration_first and res.returncode != 0 and ("renders no duration control" in err_text or "duration" in err_text.lower()):
+            time.sleep(3)
+            cmd = build_cmd(use_duration=False)
+            res = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout_minutes * 60)
+            err_text = (res.stderr or "") + (res.stdout or "")
+
+        # 생성은 완료되었으나 다운로드 리다이렉트(HTTP 302 등) 에러인 경우, 같은 워커 프로필로 즉시 자동 복구
+        if res.returncode != 0 and (
+            "signed media URL" in err_text
+            or "MediaDownloadError" in err_text
+            or "302" in err_text
+            or "WireFormatError" in err_text
+        ):
+            try:
+                time.sleep(2)
+                media_id = _extract_media_id_from_output(err_text, profile_name)
+                if media_id:
+                    recovery_dir = output_path.parent / f".flow_recover_{uuid.uuid4().hex[:8]}"
+                    recovery_dir.mkdir(parents=True, exist_ok=True)
+                    try:
+                        download_cmd = [
+                            gflow_bin, "data", "download", media_id,
+                            "--profile", profile_name,
+                            "--out", str(recovery_dir),
+                        ]
+                        subprocess.run(download_cmd, capture_output=True, text=True, env=env, timeout=180)
+                        cand = recovery_dir / f"{media_id}.mp4"
+                        if cand.exists() and cand.stat().st_size > 1000:
+                            cand.replace(output_path)
+                    finally:
+                        shutil.rmtree(recovery_dir, ignore_errors=True)
+            except Exception as recover_err:
+                print(f"[Flow Video Recovery Error ({profile_name})] {recover_err}")
+
+    actual_file: Path | None = None
+    if output_path.exists() and output_path.stat().st_size > 0:
+        actual_file = output_path
+    else:
+        for ext in (".mp4", ".mov", ".webm"):
+            alt = output_path.with_suffix(ext)
+            if alt.exists() and alt.stat().st_size > 0:
+                actual_file = alt
+                break
+
+    if not actual_file or not actual_file.exists() or actual_file.stat().st_size == 0:
+        err = (res.stderr or res.stdout or f"Exit code {res.returncode}").strip()
+        raise RuntimeError(f"Google Flow 비디오 생성 실패 (profile={profile_name}): {err}")
+
+    # 우측 하단 워터마크 자동 제거
+    _clean_watermark_if_available(actual_file)
+
+    if actual_file != output_path:
+        shutil.copy2(actual_file, output_path)
+
+    return output_path
+
+
 MODEL_ALIAS_MAP = {
     "grok_imagine_1_5_lite": "grok_video_v15_lite",
     "grok_imagine1_5_lite": "grok_video_v15_lite",
@@ -923,6 +1341,21 @@ def generate_scene_image_for_project(
                 pass
         return img_path
 
+    # 0. Google Flow 모델 시도
+    if model_name in FLOW_IMAGE_MODELS or model_name.startswith("flow_"):
+        alias = FLOW_IMAGE_MODELS.get(model_name, "nano-pro")
+        try:
+            _run_flow_image_generate(
+                model_alias=alias,
+                prompt=prompt,
+                output_path=start_image_path,
+                aspect_ratio="9:16",
+            )
+            if start_image_path.exists() and start_image_path.stat().st_size > 1000:
+                return _finalize_image(start_image_path)
+        except Exception as e:
+            print(f"[Google Flow Image Error] {e}")
+
     # 1. 힉스필드 모델 시도 (nano_banana_pro, gpt_image_2, seedream_v5_pro, flux_3_image 등)
     if model_name != "dall-e-3":
         try:
@@ -994,6 +1427,11 @@ def generate_scene_video_for_project(
     if not current_scene_image.exists():
         raise FileNotFoundError(f"Scene {scene_id}의 시작 이미지가 없습니다. 먼저 이미지를 생성해주세요.")
 
+    # Google Flow CLI 모델은 단독 시작 이미지 기반이므로 원테이크(앞 씬 2장 프레임 도킹) 강제 비활성화
+    is_flow_model = model_name in FLOW_VIDEO_MODELS or (model_name and model_name.startswith("flow_"))
+    if is_flow_model:
+        match_prev_frame = False
+
     # 🎬 키프레임 연속성 연동 (match_prev_frame):
     # Scene 2 이상이고 match_prev_frame이 True인 경우:
     #   - 시작 프레임: 이전 씬의 마지막 비디오 프레임
@@ -1019,6 +1457,30 @@ def generate_scene_video_for_project(
 
     video_path = scenes_dir / f"scene_{scene_id:02d}_video.mp4"
     final_frame_path = scenes_dir / f"scene_{scene_id:02d}_final.png"
+
+    # 0. Google Flow 비디오 모델 시도
+    if model_name in FLOW_VIDEO_MODELS or model_name.startswith("flow_"):
+        alias = FLOW_VIDEO_MODELS.get(model_name, "veo-fast")
+        _run_flow_video_generate(
+            model_alias=alias,
+            prompt=prompt,
+            start_image=start_image_path,
+            output_path=video_path,
+            end_image=end_image,
+            duration=duration,
+            aspect_ratio="9:16",
+        )
+        # ffmpeg으로 생성된 비디오의 실제 마지막 프레임 정밀 추출
+        try:
+            extract_cmd = [
+                "ffmpeg", "-sseof", "-0.1", "-i", str(video_path),
+                "-update", "1", "-q:v", "1", str(final_frame_path), "-y"
+            ]
+            subprocess.run(extract_cmd, capture_output=True, check=True)
+        except Exception:
+            if not final_frame_path.exists():
+                final_frame_path.write_bytes(start_image_path.read_bytes())
+        return video_path
 
     # 힉스필드 비디오 생성 CLI 실행 (Kling/Seedance 등은 start_image와 end_image 2개 모두 전달)
     video_url = _run_higgsfield_generate(
@@ -1107,6 +1569,11 @@ def refine_and_regenerate_scene(
     #   - 비디오는 [이전 씬 끝 ➔ 이번 씬 클라이맥스 목적지 도킹 모션]
     # 체크 안 된 경우(is_matched_mode = False 또는 Scene 1):
     #   - 기존 그대로 [0초 시작 앵커 이미지] & [단독 출발 모션]
+    # Google Flow CLI 모델은 단독 시작 이미지 기반이므로 원테이크(앞 씬 매칭) 강제 비활성화
+    is_flow_model = model_name in FLOW_VIDEO_MODELS or (model_name and model_name.startswith("flow_"))
+    if is_flow_model:
+        match_prev_frame = False
+
     is_matched_mode = bool(scene_id > 1 and match_prev_frame)
 
     if target in ("image", "prompt_image"):
@@ -1777,6 +2244,25 @@ def generate_thumbnail_image_for_project(
 
     bg_path = project_dir / THUMBNAIL_BG_FILENAME
     target_path = project_dir / THUMBNAIL_FILENAME
+
+    # 0. Google Flow 썸네일 생성 시도
+    if model_name in FLOW_IMAGE_MODELS or (model_name and model_name.startswith("flow_")):
+        alias = FLOW_IMAGE_MODELS.get(model_name, "nano-pro")
+        try:
+            _run_flow_image_generate(
+                model_alias=alias,
+                prompt=final_prompt,
+                output_path=bg_path,
+                aspect_ratio="9:16",
+            )
+            if bg_path.exists() and bg_path.stat().st_size > 1000:
+                try:
+                    render_thumbnail_image(project_dir, title=title, source_image=bg_path)
+                except Exception:
+                    shutil.copy2(bg_path, target_path)
+                return target_path
+        except Exception as e:
+            print(f"[Google Flow Thumbnail Error] {e}")
 
     if model_name != "dall-e-3":
         try:

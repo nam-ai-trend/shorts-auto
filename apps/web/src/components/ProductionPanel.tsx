@@ -202,6 +202,8 @@ export function ProductionPanel({
   const [expandedPromptId, setExpandedPromptId] = useState<number | null>(null);
   const [imageModel, setImageModel] = useState<string>("nano_banana_pro");
   const [videoModel, setVideoModel] = useState<string>("kling_o3_flf");
+  const isCurrentFlowVideo = videoModel.startsWith("flow_") || videoModel.endsWith("_flow") || VIDEO_MODELS.find((m) => m.id === videoModel)?.provider === "Google Flow";
+
   const [modalMode, setModalMode] = useState<"image" | "video" | null>(null);
   const [multiShotsMap, setMultiShotsMap] = useState<Record<number, boolean>>({});
   const [matchPrevMap, setMatchPrevMap] = useState<Record<number, boolean>>({});
@@ -510,17 +512,59 @@ export function ProductionPanel({
     setBusyAction("all_videos");
     setRenderError(null);
     try {
-      for (let i = 0; i < videoScenes.length; i++) {
-        const sc = videoScenes[i];
-        const scId = sc.scene_id;
-        const isMatched = matchPrevMap[scId] ?? (scId > 1);
-        const isMulti = multiShotsMap[scId] ?? false;
-        const dur = Math.max(4, Math.round(sc.target_duration));
+      // 앞 씬 매칭(원테이크)을 사용하는 씬이 하나라도 있는지 확인 (Flow CLI 모델은 원테이크 미지원으로 항상 false)
+      const hasAnyMatched = !isCurrentFlowVideo && videoScenes.filter((s) => s.scene_id > 1).some((sc) => {
+        return matchPrevMap[sc.scene_id] !== false;
+      });
 
-        setBatchProgressText(`[${i + 1}/${videoScenes.length}] Scene ${scId} AI 비디오 생성 중... (${currentVideoModel.name})`);
-        setBusySceneId(scId);
+      if (hasAnyMatched) {
+        // [순차 모드] 앞 씬 매칭이 켜져 있는 경우: 이전 씬의 마지막 비디오 프레임이 필요하므로 순차적으로 차례대로 생성
+        for (let i = 0; i < videoScenes.length; i++) {
+          const sc = videoScenes[i];
+          const scId = sc.scene_id;
+          const isMatched = isCurrentFlowVideo ? false : (scId > 1 ? (matchPrevMap[scId] !== false) : false);
+          const isMulti = multiShotsMap[scId] ?? false;
+          const dur = Math.max(4, Math.round(sc.target_duration));
 
-        await onGenerateSceneVideo(scId, videoModel, dur, isMulti, isMatched);
+          setBatchProgressText(`[${i + 1}/${videoScenes.length}] Scene ${scId} AI 비디오 순차 생성 중... (${currentVideoModel.name})`);
+          setBusySceneId(scId);
+          setBusyVideoScenes((prev) => ({ ...prev, [scId]: true }));
+
+          try {
+            await onGenerateSceneVideo(scId, videoModel, dur, isMulti, isMatched);
+          } finally {
+            setBusyVideoScenes((prev) => {
+              const next = { ...prev };
+              delete next[scId];
+              return next;
+            });
+          }
+        }
+      } else {
+        // [병렬 모드] 앞 씬 매칭을 안 쓸 때: 모든 씬을 병렬(Promise.all)로 동시 생성!
+        setBatchProgressText(`⚡ 모든 씬 (${videoScenes.length}개) AI 비디오 동시 병렬 생성 중... (${currentVideoModel.name})`);
+
+        // 모든 씬을 busy 상태로 즉시 표시
+        const initialBusy: Record<number, boolean> = {};
+        videoScenes.forEach((s) => { initialBusy[s.scene_id] = true; });
+        setBusyVideoScenes(initialBusy);
+
+        const videoPromises = videoScenes.map(async (sc) => {
+          const scId = sc.scene_id;
+          const isMulti = multiShotsMap[scId] ?? false;
+          const dur = Math.max(4, Math.round(sc.target_duration));
+          try {
+            await onGenerateSceneVideo(scId, videoModel, dur, isMulti, false);
+          } finally {
+            setBusyVideoScenes((prev) => {
+              const next = { ...prev };
+              delete next[scId];
+              return next;
+            });
+          }
+        });
+
+        await Promise.all(videoPromises);
       }
 
       setBusySceneId(null);
@@ -565,6 +609,19 @@ export function ProductionPanel({
   const hasFinalVideo = Boolean(productionState?.has_final_video);
   const finalVideoUrl = productionState?.final_video_url ?? (hasFinalVideo ? `/api/projects/${encodeURIComponent(projectId)}/production/final-video` : null);
 
+  // Google Flow CLI 모델 선택 시 원테이크(앞 씬 매칭)를 강제로 자동 OFF
+  useEffect(() => {
+    if (isCurrentFlowVideo) {
+      setMatchPrevMap((prev) => {
+        const next: Record<number, boolean> = {};
+        videoScenes.forEach((s) => {
+          next[s.scene_id] = false;
+        });
+        return next;
+      });
+    }
+  }, [videoModel, isCurrentFlowVideo, videoScenes]);
+
   // 전체 멀티샷 일괄 켜기 / 끄기 토글
   const allMultiShotsOn = videoScenes.length > 0 && videoScenes.every((s) => multiShotsMap[s.scene_id]);
   const toggleAllMultiShots = () => {
@@ -576,9 +633,10 @@ export function ProductionPanel({
     setMultiShotsMap(nextMap);
   };
 
-  // 전체 앞 씬 매칭 일괄 켜기 / 끄기 토글 (Scene 2 이상)
-  const allMatchPrevOn = videoScenes.filter((s) => s.scene_id > 1).every((s) => matchPrevMap[s.scene_id] !== false);
+  // 전체 앞 씬 매칭 일괄 켜기 / 끄기 토글 (Scene 2 이상, Flow CLI 모델은 비활성화)
+  const allMatchPrevOn = !isCurrentFlowVideo && videoScenes.filter((s) => s.scene_id > 1).every((s) => matchPrevMap[s.scene_id] !== false);
   const toggleAllMatchPrev = () => {
+    if (isCurrentFlowVideo) return; // Flow 모델은 원테이크(앞 씬 매칭) 불가
     const nextVal = !allMatchPrevOn;
     const nextMap: Record<number, boolean> = {};
     videoScenes.filter((s) => s.scene_id > 1).forEach((s) => {
@@ -794,8 +852,12 @@ export function ProductionPanel({
                   </span>
                 ) : isBusy ? (
                   "처리 중..."
+                ) : allMatchPrevOn ? (
+                  `🎬 전체 씬 AI 영상 순차 생성 & 렌더링 [원테이크 2장 연결] (${currentVideoModel.name})`
+                ) : isCurrentFlowVideo ? (
+                  `⚡ 전체 씬 AI 영상 3개 병렬 생성 & 렌더링 [Google Flow 고속 모드] (${currentVideoModel.name})`
                 ) : (
-                  `🎬 전체 씬 AI 영상 일괄 생성 & 렌더링 (${currentVideoModel.name})`
+                  `⚡ 전체 씬 AI 영상 동시 병렬 생성 & 렌더링 [고속 독립 모드] (${currentVideoModel.name})`
                 )}
               </button>
               <div
@@ -811,7 +873,7 @@ export function ProductionPanel({
                   color: "#e2e8f0"
                 }}
               >
-                <span style={{ color: "#c084fc", fontWeight: "bold" }}>🏷️ 자동 렌더링될 오프닝 타이틀:</span>
+                <span style={{ color: "#c084fc", fontWeight: "bold" }}>🏷️ 쇼츠 상단 고정 타이틀 (처음부터 끝까지 노출):</span>
                 {videoTitle.trim() ? (
                   <span style={{ color: "#38bdf8", fontWeight: "bold", whiteSpace: "pre-line" }}>
                     "{videoTitle.replace(/\n/g, " / ")}"
@@ -860,21 +922,36 @@ export function ProductionPanel({
               <button
                 type="button"
                 onClick={toggleAllMatchPrev}
-                disabled={isBusy}
+                disabled={isBusy || Boolean(isCurrentFlowVideo)}
                 style={{
                   fontSize: "12px",
                   padding: "5px 11px",
                   borderRadius: "6px",
-                  cursor: isBusy ? "not-allowed" : "pointer",
-                  background: allMatchPrevOn ? "rgba(56, 189, 248, 0.25)" : "rgba(255, 255, 255, 0.05)",
-                  border: allMatchPrevOn ? "1.5px solid #38bdf8" : "1px solid rgba(255, 255, 255, 0.2)",
-                  color: allMatchPrevOn ? "#38bdf8" : "#94a3b8",
+                  cursor: (isBusy || isCurrentFlowVideo) ? "not-allowed" : "pointer",
+                  background: isCurrentFlowVideo
+                    ? "rgba(255, 255, 255, 0.02)"
+                    : allMatchPrevOn
+                    ? "rgba(56, 189, 248, 0.25)"
+                    : "rgba(255, 255, 255, 0.05)",
+                  border: isCurrentFlowVideo
+                    ? "1px dashed rgba(255, 255, 255, 0.15)"
+                    : allMatchPrevOn
+                    ? "1.5px solid #38bdf8"
+                    : "1px solid rgba(255, 255, 255, 0.2)",
+                  color: isCurrentFlowVideo ? "#64748b" : (allMatchPrevOn ? "#38bdf8" : "#94a3b8"),
                   fontWeight: "bold",
+                  opacity: isCurrentFlowVideo ? 0.65 : 1,
                   transition: "all 0.15s ease"
                 }}
-                title="Scene 2 이상 모든 씬의 앞 씬 매칭을 한 번에 켜거나 끕니다"
+                title={
+                  isCurrentFlowVideo
+                    ? "Google Flow CLI 모델은 단일 이미지 모션 전용으로 원테이크(앞 씬 매칭)를 지원하지 않습니다."
+                    : "Scene 2 이상 모든 씬의 앞 씬 매칭을 한 번에 켜거나 끕니다"
+                }
               >
-                ⚡ 전체 매칭: {allMatchPrevOn ? "전체 ON (2장 연결)" : "전체/일부 OFF"}
+                {isCurrentFlowVideo
+                  ? "🚫 전체 매칭: Flow 미지원 (OFF 고정)"
+                  : `⚡ 전체 매칭: ${allMatchPrevOn ? "전체 ON (2장 연결)" : "전체/일부 OFF"}`}
               </button>
 
               <button
@@ -909,7 +986,7 @@ export function ProductionPanel({
           >
             {videoScenes.map((sc) => {
               const scId = sc.scene_id;
-              const isMatched = scId > 1 ? (matchPrevMap[scId] !== false) : false;
+              const isMatched = isCurrentFlowVideo ? false : (scId > 1 ? (matchPrevMap[scId] !== false) : false);
               const isMulti = multiShotsMap[scId] ?? false;
 
               return (
@@ -948,22 +1025,38 @@ export function ProductionPanel({
                     {scId > 1 && (
                       <button
                         type="button"
-                        onClick={() => setMatchPrevMap((prev) => ({ ...prev, [scId]: !isMatched }))}
-                        disabled={isBusy}
+                        onClick={() => {
+                          if (isCurrentFlowVideo) return;
+                          setMatchPrevMap((prev) => ({ ...prev, [scId]: !isMatched }));
+                        }}
+                        disabled={isBusy || Boolean(isCurrentFlowVideo)}
                         style={{
                           fontSize: "11px",
                           padding: "3px 7px",
                           borderRadius: "5px",
-                          cursor: isBusy ? "not-allowed" : "pointer",
-                          background: isMatched ? "rgba(56, 189, 248, 0.2)" : "rgba(255, 255, 255, 0.05)",
-                          border: isMatched ? "1.5px solid #38bdf8" : "1px dashed rgba(255, 255, 255, 0.25)",
-                          color: isMatched ? "#38bdf8" : "#94a3b8",
-                          fontWeight: isMatched ? "bold" : "normal",
+                          cursor: (isBusy || isCurrentFlowVideo) ? "not-allowed" : "pointer",
+                          background: isCurrentFlowVideo
+                            ? "rgba(255, 255, 255, 0.02)"
+                            : isMatched
+                            ? "rgba(56, 189, 248, 0.2)"
+                            : "rgba(255, 255, 255, 0.05)",
+                          border: isCurrentFlowVideo
+                            ? "1px dashed rgba(255, 255, 255, 0.15)"
+                            : isMatched
+                            ? "1.5px solid #38bdf8"
+                            : "1px dashed rgba(255, 255, 255, 0.25)",
+                          color: isCurrentFlowVideo ? "#64748b" : (isMatched ? "#38bdf8" : "#94a3b8"),
+                          fontWeight: (!isCurrentFlowVideo && isMatched) ? "bold" : "normal",
+                          opacity: isCurrentFlowVideo ? 0.6 : 1,
                           transition: "all 0.15s ease"
                         }}
-                        title={`Scene ${scId} 앞 씬 매칭 (클릭하여 토글)`}
+                        title={
+                          isCurrentFlowVideo
+                            ? "Google Flow CLI 모델은 단일 이미지 모션 전용으로 앞 씬 매칭(원테이크)을 지원하지 않습니다."
+                            : `Scene ${scId} 앞 씬 매칭 (클릭하여 토글)`
+                        }
                       >
-                        {isMatched ? "🔗 앞씬매칭 ON" : "🔗 앞씬매칭 OFF"}
+                        {isCurrentFlowVideo ? "🚫 Flow 미지원" : isMatched ? "🔗 앞씬매칭 ON" : "🔗 앞씬매칭 OFF"}
                       </button>
                     )}
 
@@ -1527,7 +1620,7 @@ export function ProductionPanel({
                   const hasVideo = Boolean(scene.generated_video_url);
                   const hasFinalFrame = Boolean(scene.final_frame_url && hasVideo);
                   const isLastScene = scene.scene_id === videoScenes.length;
-                  const isMatched = scene.scene_id > 1 ? (matchPrevMap[scene.scene_id] !== false) : false;
+                  const isMatched = isCurrentFlowVideo ? false : (scene.scene_id > 1 ? (matchPrevMap[scene.scene_id] !== false) : false);
                   const isMultiShot = multiShotsMap[scene.scene_id] ?? false;
 
                   const isThisImageBusy = Boolean(busyImageScenes[scene.scene_id]) || (busyAction === "image" && busySceneId === scene.scene_id) || busyAction === "all_images";
@@ -1574,28 +1667,49 @@ export function ProductionPanel({
                             <label
                               style={{
                                 fontSize: "12px",
-                                color: isMatched ? "#38bdf8" : "#94a3b8",
+                                color: isCurrentFlowVideo ? "#64748b" : (isMatched ? "#38bdf8" : "#94a3b8"),
                                 display: "inline-flex",
                                 alignItems: "center",
                                 gap: "6px",
-                                cursor: "pointer",
-                                background: isMatched ? "rgba(56, 189, 248, 0.16)" : "rgba(255, 255, 255, 0.06)",
-                                border: isMatched ? "1.5px solid #38bdf8" : "1px dashed rgba(255, 255, 255, 0.25)",
+                                cursor: isCurrentFlowVideo ? "not-allowed" : "pointer",
+                                background: isCurrentFlowVideo
+                                  ? "rgba(255, 255, 255, 0.02)"
+                                  : isMatched
+                                  ? "rgba(56, 189, 248, 0.16)"
+                                  : "rgba(255, 255, 255, 0.06)",
+                                border: isCurrentFlowVideo
+                                  ? "1px dashed rgba(255, 255, 255, 0.12)"
+                                  : isMatched
+                                  ? "1.5px solid #38bdf8"
+                                  : "1px dashed rgba(255, 255, 255, 0.25)",
                                 padding: "5px 10px",
                                 borderRadius: "6px",
-                                fontWeight: isMatched ? "bold" : "normal",
+                                fontWeight: (!isCurrentFlowVideo && isMatched) ? "bold" : "normal",
                                 userSelect: "none",
+                                opacity: isCurrentFlowVideo ? 0.6 : 1,
                                 transition: "all 0.15s ease"
                               }}
-                              title="체크: 이전 씬 마지막 프레임과 이번 씬 시작 이미지를 2장 매칭하여 원테이크로 연결합니다. 체크 해제: 이번 씬 단독 이미지로 생성합니다."
+                              title={
+                                isCurrentFlowVideo
+                                  ? "Google Flow CLI 모델은 단일 이미지 모션 전용으로 앞 씬 매칭(원테이크)을 지원하지 않습니다."
+                                  : "체크: 이전 씬 마지막 프레임과 이번 씬 시작 이미지를 2장 매칭하여 원테이크로 연결합니다. 체크 해제: 이번 씬 단독 이미지로 생성합니다."
+                              }
                             >
                               <input
                                 type="checkbox"
                                 checked={isMatched}
-                                onChange={(e) => setMatchPrevMap((prev) => ({ ...prev, [scene.scene_id]: e.target.checked }))}
-                                style={{ cursor: "pointer", accentColor: "#0284c7", width: "15px", height: "15px" }}
+                                disabled={Boolean(isCurrentFlowVideo)}
+                                onChange={(e) => {
+                                  if (isCurrentFlowVideo) return;
+                                  setMatchPrevMap((prev) => ({ ...prev, [scene.scene_id]: e.target.checked }));
+                                }}
+                                style={{ cursor: isCurrentFlowVideo ? "not-allowed" : "pointer", accentColor: "#0284c7", width: "15px", height: "15px" }}
                               />
-                              {isMatched ? "🔗 앞 씬 매칭 (ON)" : "🔗 앞 씬 매칭 (OFF)"}
+                              {isCurrentFlowVideo
+                                ? "🚫 앞 씬 매칭 (Flow CLI 미지원)"
+                                : isMatched
+                                ? "🔗 앞 씬 매칭 (ON)"
+                                : "🔗 앞 씬 매칭 (OFF)"}
                             </label>
                           )}
 

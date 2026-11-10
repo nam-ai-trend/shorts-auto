@@ -555,6 +555,7 @@ export default function App() {
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : `Scene ${sceneId} 비디오 생성 실패`);
+      throw reason;
     }
   }
 

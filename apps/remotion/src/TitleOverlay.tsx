@@ -1,52 +1,20 @@
 import React from "react";
-import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 
 interface TitleOverlayProps {
   title?: string;
 }
 
 export const TitleOverlay: React.FC<TitleOverlayProps> = ({ title }) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
 
   // 제목이 없거나 공백이면 렌더링하지 않음
   if (!title || !title.trim()) {
     return null;
   }
 
-  // 노출 시간: 0초 ~ 2.0초 (정확히 2초 = 48 프레임 at 24fps)
-  const endFrame = Math.round(2.0 * fps);
-  if (frame > endFrame) {
-    return null;
-  }
-
-  // 1. 완전 처음(0초 0프레임)부터 100% 크기와 불투명도로 즉시 표시
-  // (스프링 팝업으로 인한 0초 시점 미노출 현상 제거)
-
-  // 2. 퇴장 페이드아웃 및 축소 효과 (1.5초 ~ 2.0초 = 36 ~ 48 프레임)
-  const fadeStartFrame = Math.round(1.5 * fps);
-  const exitOpacity = interpolate(
-    frame,
-    [fadeStartFrame, endFrame],
-    [1, 0],
-    {
-      extrapolateLeft: "clamp",
-      extrapolateRight: "clamp",
-    }
-  );
-
-  const exitScale = interpolate(
-    frame,
-    [fadeStartFrame, endFrame],
-    [1, 0.94],
-    {
-      extrapolateLeft: "clamp",
-      extrapolateRight: "clamp",
-    }
-  );
-
-  const currentScale = exitScale;
-  const currentOpacity = exitOpacity;
+  // 노출 시간: 영상의 완전 처음부터 끝까지 (Always-On 상시 고정 노출)
+  // 시청자가 쇼츠를 언제 보든 주제와 핵심 후킹을 놓치지 않도록 상시 유지
+  const currentScale = 1.0;
+  const currentOpacity = 1.0;
 
   // 줄바꿈(\\n 문자열 포함) 정규화 및 분할
   const normalizedTitle = (title || "").replace(/\\n/g, "\n").trim();

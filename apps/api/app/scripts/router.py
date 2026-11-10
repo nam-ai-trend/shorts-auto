@@ -210,7 +210,8 @@ def create_scripts_router(
             else:
                 client = script_client_factory(settings.openai_api_key, settings.openai_analysis_model)
                 response = client.analyze(build_final_script_prompt(selected, payload.feedback, current_final_script=current_script))
-                final_script = extract_final_script(response)
+                tail_bridge = selected.loop_design.tail_bridge if selected.loop_design else ""
+                final_script = extract_final_script(response, hook=selected.hook, tail_bridge=tail_bridge)
             state = build_final_script_state(selected.candidate_id, payload.feedback, final_script)
             write_final_script_state(path, state)
 

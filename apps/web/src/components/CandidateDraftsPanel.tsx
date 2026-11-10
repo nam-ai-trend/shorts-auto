@@ -202,6 +202,60 @@ export function CandidateDraftsPanel({
                   <pre className="script-preview">{candidate.draft_script}</pre>
                 </div>
 
+                {/* 🔁 무한 루프 연결 미리보기 (Seamless Loop) */}
+                {candidate.loop_design && (
+                  <div style={{ marginTop: "0.75rem", padding: "12px", background: "#f5f3ff", borderRadius: "8px", border: "1px solid #c4b5fd" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                      <span style={{ fontSize: "12px", fontWeight: "bold", color: "#5b21b6", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        🔁 무한 루프 엔딩 (Seamless Loop):
+                      </span>
+                      {candidate.loop_design.loop_type && (
+                        <span style={{ fontSize: "11px", fontWeight: 600, background: "#ede9fe", color: "#6d28d9", padding: "2px 8px", borderRadius: "4px" }}>
+                          {candidate.loop_design.loop_type}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#3b0764", lineHeight: 1.5, background: "#ffffff", padding: "8px 10px", borderRadius: "6px", border: "1px solid #ddd6fe" }}>
+                      <p style={{ margin: "0 0 4px", fontSize: "11px", color: "#7c3aed", fontWeight: 600 }}>
+                        [끝 문장] ➔ [첫 문장 후킹] 순환 연결 미리보기:
+                      </p>
+                      <span style={{ color: "#475569" }}>...{candidate.loop_design.tail_bridge} </span>
+                      <span style={{ color: "#7c3aed", fontWeight: "bold" }}>➔ [{candidate.loop_design.head_hook}]</span>
+                      {candidate.loop_design.connected_preview && (
+                        <p style={{ margin: "6px 0 0", fontSize: "11.5px", color: "#1e1b4b", fontStyle: "italic", borderTop: "1px dashed #e9d5ff", paddingTop: "4px" }}>
+                          💬 &ldquo;{candidate.loop_design.connected_preview}&rdquo;
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 🛡️ 팩트체크 QA 리포트 (Fact-Check QA) */}
+                {candidate.fact_check_qa && candidate.fact_check_qa.length > 0 && (
+                  <div style={{ marginTop: "0.75rem", padding: "12px", background: "#f0fdf4", borderRadius: "8px", border: "1px solid #86efac" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px" }}>
+                      <span style={{ fontSize: "12px", fontWeight: "bold", color: "#166534" }}>
+                        🛡️ 팩트체크 &amp; 수치 검산 QA:
+                      </span>
+                      <span style={{ fontSize: "10px", background: "#dcfce7", color: "#15803d", padding: "1px 6px", borderRadius: "4px", fontWeight: 700 }}>
+                        VERIFIED ({candidate.fact_check_qa.length}개 검증 완료)
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      {candidate.fact_check_qa.map((item, idx) => (
+                        <div key={idx} style={{ background: "#ffffff", padding: "6px 10px", borderRadius: "6px", border: "1px solid #bbf7d0", fontSize: "11.5px" }}>
+                          <div style={{ fontWeight: 600, color: "#14532d", marginBottom: "2px" }}>
+                            ✓ {item.claim}
+                          </div>
+                          <div style={{ color: "#475569", fontSize: "11px", lineHeight: 1.4 }}>
+                            <strong>검증 근거:</strong> {item.evidence}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* 📝 유튜브 설명란 문구, 해시태그, 키워드 */}
                 {(candidate.description || candidate.tags || candidate.keywords) && (
                   <div style={{ marginTop: "0.75rem", padding: "12px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #cbd5e1", display: "flex", flexDirection: "column", gap: "10px" }}>
