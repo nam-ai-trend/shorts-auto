@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 
-import type { ScriptCandidate, TtsValidationResult } from "../types";
+import type { LoopValidationResult, ScriptCandidate, TtsValidationResult } from "../types";
 
 interface FinalScriptPanelProps {
   readonly finalScript: string | null;
@@ -10,6 +10,7 @@ interface FinalScriptPanelProps {
   readonly onUpdateFinalScript?: (updatedScript: string) => Promise<void> | void;
   readonly selectedCandidate: ScriptCandidate | null;
   readonly ttsValidation: TtsValidationResult | null;
+  readonly loopValidation?: LoopValidationResult | null;
 }
 
 export function FinalScriptPanel({
@@ -18,7 +19,8 @@ export function FinalScriptPanel({
   onFinalize,
   onUpdateFinalScript,
   selectedCandidate,
-  ttsValidation
+  ttsValidation,
+  loopValidation
 }: FinalScriptPanelProps) {
   const [feedback, setFeedback] = useState("");
   const [refineFeedback, setRefineFeedback] = useState("");
@@ -142,6 +144,22 @@ export function FinalScriptPanel({
           <span style={{ fontSize: "12px", fontWeight: "bold", background: "#dbeafe", color: "#1e40af", padding: "3px 10px", borderRadius: "4px" }}>
             ⏱️ 글자 수: {(isEditing ? editedScript : finalScript).length}자 (예상 낭독 시간: 약 {Math.round((isEditing ? editedScript : finalScript).length / 9.5)}초)
           </span>
+          {loopValidation && (
+            <span
+              style={{
+                fontSize: "12px",
+                fontWeight: "bold",
+                background: loopValidation.is_valid ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                color: loopValidation.is_valid ? "#10b981" : "#ef4444",
+                border: `1px solid ${loopValidation.is_valid ? "rgba(16, 185, 129, 0.4)" : "rgba(239, 68, 68, 0.4)"}`,
+                padding: "3px 10px",
+                borderRadius: "4px",
+                marginLeft: "8px",
+              }}
+            >
+              🔄 루프 QA: {loopValidation.score}점 ({loopValidation.loop_type})
+            </span>
+          )}
         </div>
       )}
 

@@ -162,12 +162,25 @@ export interface TtsValidationResult {
   readonly issues: readonly string[];
 }
 
+export interface LoopValidationResult {
+  readonly is_valid: boolean;
+  readonly score: number;
+  readonly loop_type: string;
+  readonly tail_bridge: string;
+  readonly head_hook: string;
+  readonly connected_preview: string;
+  readonly evaluation: string;
+  readonly issues: readonly string[];
+}
+
 export interface ScriptsState {
   readonly candidates: readonly ScriptCandidate[];
   readonly selected_candidate: ScriptCandidate | null;
   readonly final_script: string | null;
+  readonly display_script?: string | null;
   readonly feedback: string;
   readonly tts_validation: TtsValidationResult | null;
+  readonly loop_validation?: LoopValidationResult | null;
 }
 
 export interface SceneTextBlock {
@@ -192,6 +205,29 @@ export interface ContinuityState {
   readonly prev_final_frame_url: string | null;
 }
 
+export interface CharacterDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly key_features: readonly string[];
+}
+
+export interface KeyPropItem {
+  readonly name: string;
+  readonly description: string;
+}
+
+export interface AssetSheetManifest {
+  readonly has_sheet: boolean;
+  readonly master_sheet_url?: string | null;
+  readonly character_url?: string | null;
+  readonly prop_1_url?: string | null;
+  readonly prop_2_url?: string | null;
+  readonly prop_1_name?: string | null;
+  readonly prop_2_name?: string | null;
+  readonly character_name?: string | null;
+  readonly created_at?: string | null;
+}
+
 export interface VideoSceneItem {
   readonly scene_id: number;
   readonly target_duration: number;
@@ -206,6 +242,10 @@ export interface VideoSceneItem {
   readonly final_frame_url: string | null;
   readonly continuity: ContinuityState;
   readonly camera_movement?: string | null;
+  readonly requires_character?: boolean;
+  readonly required_props?: readonly string[];
+  readonly active_references?: readonly string[];
+  readonly has_image?: boolean;
   readonly is_locked: boolean;
   readonly last_feedback?: string | null;
   readonly last_image_feedback?: string | null;
@@ -219,6 +259,9 @@ export interface ConceptKit {
   readonly core_objects: readonly string[];
   readonly camera_composition: string;
   readonly continuity_rules: readonly string[];
+  readonly character_definition?: CharacterDefinition | null;
+  readonly key_props?: readonly KeyPropItem[];
+  readonly master_asset_sheet_prompt?: string;
 }
 
 export interface ProductionState {
@@ -233,6 +276,7 @@ export interface ProductionState {
   readonly has_video_scenes?: boolean;
   readonly video_scene_count?: number;
   readonly video_scenes?: readonly VideoSceneItem[];
+  readonly asset_sheet?: AssetSheetManifest | null;
   readonly has_thumbnail?: boolean;
   readonly thumbnail_url?: string | null;
   readonly has_final_video?: boolean;

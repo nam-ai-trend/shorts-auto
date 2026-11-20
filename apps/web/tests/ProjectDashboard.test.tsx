@@ -68,7 +68,7 @@ describe("ProjectDashboard", () => {
       />
     );
 
-    expect(screen.getByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Projects" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /New Project/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /261011_테스트 쇼츠/i })).toBeInTheDocument();
 
@@ -96,5 +96,26 @@ describe("ProjectDashboard", () => {
 
     expect(screen.getByRole("button", { name: /261011_선택한 쇼츠/i })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: /261011_테스트 쇼츠/i })).not.toHaveAttribute("aria-current");
+  });
+
+  it("calls onDeleteProject when delete button is clicked", async () => {
+    const user = userEvent.setup();
+    const deletedIds: string[] = [];
+
+    render(
+      <ProjectDashboard
+        onCreateProject={() => undefined}
+        onSelectProject={() => undefined}
+        onDeleteProject={(id) => deletedIds.push(id)}
+        projects={[project]}
+        selectedProjectId={project.project_id}
+      />
+    );
+
+    const deleteBtn = screen.getByRole("button", { name: /261011_테스트 쇼츠 삭제/i });
+    expect(deleteBtn).toBeInTheDocument();
+
+    await user.click(deleteBtn);
+    expect(deletedIds).toEqual(["261011_2130"]);
   });
 });

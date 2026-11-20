@@ -17,6 +17,7 @@ from app.production.service import (
     generate_concept_kit_and_video_scenes,
 )
 from app.scripts.files import (
+    DISPLAY_SCRIPT_FILE,
     FINAL_SCRIPT_FILE,
     FINAL_SCRIPT_STATE_FILE,
     SCRIPT_CANDIDATES_FILE,
@@ -32,7 +33,10 @@ from app.scripts.generation import (
     build_final_script_prompt,
     build_final_script_state,
     extract_final_script,
+    extract_final_scripts,
     extract_verbatim_script_from_feedback,
+    refine_candidates_loop,
+    refine_final_script_loop,
     validate_candidate_payload,
 )
 from app.scripts.models import (
@@ -101,7 +105,7 @@ def create_scripts_router(
                 project_id,
                 job.job_id,
                 "running",
-                "Generating script drafts based on analysis and feedback",
+                "1차: 과학적 팩트/수치 기반 대본 본문 작성 중...",
             )
             client = script_client_factory(settings.openai_api_key, settings.openai_analysis_model)
             prompt = build_candidate_generation_prompt(reference_script, reference_analysis, feedback)
@@ -203,20 +207,33 @@ def create_scripts_router(
                 command=settings.openai_analysis_model,
             )
             job_id = job.job_id
-            update_job_state(outputs, project_id, job.job_id, "running", "Finalizing TTS-ready script")
+            update_job_state(outputs, project_id, job.job_id, "running", "1차: 피드백 반영 최종 낭독 대본 완성 중...")
             verbatim = extract_verbatim_script_from_feedback(payload.feedback)
             if verbatim:
                 final_script = verbatim
+                display_script = verbatim
             else:
                 client = script_client_factory(settings.openai_api_key, settings.openai_analysis_model)
                 response = client.analyze(build_final_script_prompt(selected, payload.feedback, current_final_script=current_script))
                 tail_bridge = selected.loop_design.tail_bridge if selected.loop_design else ""
-                final_script = extract_final_script(response, hook=selected.hook, tail_bridge=tail_bridge)
-            state = build_final_script_state(selected.candidate_id, payload.feedback, final_script)
+                final_script, display_script, returned_tail_bridge = extract_final_scripts(response, hook=selected.hook, tail_bridge=tail_bridge)
+                if returned_tail_bridge:
+                    tail_bridge = returned_tail_bridge
+                if not display_script and selected.display_script:
+                    display_script = selected.display_script
+            state = build_final_script_state(
+                selected.candidate_id,
+                payload.feedback,
+                final_script,
+                display_script=display_script,
+                hook=selected.hook,
+                tail_bridge=tail_bridge,
+            )
             write_final_script_state(path, state)
 
             project = read_project(outputs, project_id)
             project.generated_files["final_script"] = FINAL_SCRIPT_FILE
+            project.generated_files["display_script"] = DISPLAY_SCRIPT_FILE
             project.generated_files["final_script_state"] = FINAL_SCRIPT_STATE_FILE
 
             # Finalize script 시 대본과 함께 각 씬의 이미지 & 비디오 프롬프트 자동 생성!
@@ -242,7 +259,7 @@ def create_scripts_router(
                 job.job_id,
                 "succeeded",
                 "Final script complete",
-                output_paths=[FINAL_SCRIPT_FILE, FINAL_SCRIPT_STATE_FILE],
+                output_paths=[FINAL_SCRIPT_FILE, DISPLAY_SCRIPT_FILE, FINAL_SCRIPT_STATE_FILE],
             )
             return state.model_dump()
         except HTTPException:
@@ -265,8 +282,20 @@ def create_scripts_router(
             path = project_dir(outputs, project_id)
             script_state = read_script_state(path)
             candidate_id = script_state.selected_candidate.candidate_id if script_state.selected_candidate else "manual"
+            hook = script_state.selected_candidate.hook if script_state.selected_candidate else ""
+            tail_bridge = (
+                script_state.selected_candidate.loop_design.tail_bridge
+                if script_state.selected_candidate and script_state.selected_candidate.loop_design
+                else ""
+            )
 
-            state = build_final_script_state(candidate_id, script_state.feedback, payload.final_script)
+            state = build_final_script_state(
+                candidate_id,
+                script_state.feedback,
+                payload.final_script,
+                hook=hook,
+                tail_bridge=tail_bridge,
+            )
             write_final_script_state(path, state)
 
             project = read_project(outputs, project_id)

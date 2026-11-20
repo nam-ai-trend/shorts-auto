@@ -52,6 +52,7 @@ class ScriptCandidate(BaseModel):
     main_curiosity_question: str = Field(max_length=500)
     structure_summary: str = Field(max_length=1200)
     draft_script: str = Field(max_length=5000)
+    display_script: str = Field(default="", max_length=5000)
     borrowed_reference_structure: str = Field(max_length=1600)
     fact_check_qa: list[FactCheckItem] = Field(default_factory=list)
     loop_design: Optional[LoopDesign] = None
@@ -117,13 +118,28 @@ class TtsValidationResult(BaseModel):
         return self
 
 
+class LoopValidationResult(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    is_valid: bool
+    score: int = Field(default=100, ge=0, le=100)
+    loop_type: str = Field(default="상황 유발형", max_length=100)
+    tail_bridge: str = Field(default="", max_length=500)
+    head_hook: str = Field(default="", max_length=500)
+    connected_preview: str = Field(default="", max_length=1200)
+    evaluation: str = Field(default="", max_length=1000)
+    issues: list[str] = Field(default_factory=list)
+
+
 class FinalScriptState(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     selected_candidate_id: str
     feedback: str = ""
     final_script: str
+    display_script: str = ""
     tts_validation: TtsValidationResult
+    loop_validation: Optional[LoopValidationResult] = None
 
     @field_validator("selected_candidate_id", "final_script")
     @classmethod
@@ -133,13 +149,15 @@ class FinalScriptState(BaseModel):
 
 
 class ScriptsState(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     candidates: list[ScriptCandidate] = Field(default_factory=list)
     selected_candidate: Optional[ScriptCandidate] = None
     final_script: Optional[str] = None
+    display_script: Optional[str] = None
     feedback: str = ""
     tts_validation: Optional[TtsValidationResult] = None
+    loop_validation: Optional[LoopValidationResult] = None
 
 
 class SelectScriptCandidateRequest(BaseModel):

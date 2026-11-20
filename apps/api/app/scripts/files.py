@@ -11,11 +11,13 @@ from app.scripts.models import FinalScriptState, ScriptCandidate, ScriptsState
 SCRIPT_CANDIDATES_FILE = "candidates.json"
 SELECTED_SCRIPT_CANDIDATE_FILE = "selected_script_candidate.json"
 FINAL_SCRIPT_FILE = "final_script.md"
+DISPLAY_SCRIPT_FILE = "display_script.md"
 FINAL_SCRIPT_STATE_FILE = "final_script_state.json"
 SCRIPT_OUTPUT_FILES = [
     SCRIPT_CANDIDATES_FILE,
     SELECTED_SCRIPT_CANDIDATE_FILE,
     FINAL_SCRIPT_FILE,
+    DISPLAY_SCRIPT_FILE,
     FINAL_SCRIPT_STATE_FILE,
 ]
 
@@ -72,11 +74,13 @@ def read_selected_script_candidate(project_dir: Path) -> ScriptCandidate | None:
 
 def write_final_script_state(project_dir: Path, state: FinalScriptState) -> None:
     script = state.final_script.strip() + "\n"
+    display_script = (state.display_script.strip() if state.display_script else state.final_script.strip()) + "\n"
     # The JSON state is canonical for app reads; the markdown file is a user-facing export.
     # Write the export first and the canonical state last so interrupted writes do not expose
     # a new final script through the app without its validation metadata.
     payloads = [
         (project_dir / FINAL_SCRIPT_FILE, script),
+        (project_dir / DISPLAY_SCRIPT_FILE, display_script),
         (
             project_dir / FINAL_SCRIPT_STATE_FILE,
             json.dumps(state.model_dump(), ensure_ascii=False, indent=2),
@@ -119,6 +123,7 @@ def read_script_state(project_dir: Path) -> ScriptsState:
         candidates=read_script_candidates(project_dir),
         selected_candidate=read_selected_script_candidate(project_dir),
         final_script=final_state.final_script if final_state else None,
+        display_script=final_state.display_script if final_state else None,
         feedback=final_state.feedback if final_state else "",
         tts_validation=final_state.tts_validation if final_state else None,
     )

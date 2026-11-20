@@ -138,8 +138,9 @@ interface ProductionPanelProps {
   readonly hasFinalScript: boolean;
   readonly onGenerateProduction: () => void;
   readonly onGenerateConcepts?: (visualStyleId?: string) => void;
-  readonly onGenerateSceneImage?: (sceneId: number, model?: string) => void;
-  readonly onGenerateAllSceneImages?: (model?: string) => void;
+  readonly onGenerateAssetSheet?: (model?: string) => Promise<void>;
+  readonly onGenerateSceneImage?: (sceneId: number, model?: string, useAssetSheet?: boolean) => void;
+  readonly onGenerateAllSceneImages?: (model?: string, useAssetSheet?: boolean, onlyMissing?: boolean) => void;
   readonly onGenerateSceneVideo?: (sceneId: number, model?: string, duration?: number, multiShots?: boolean, matchPrevFrame?: boolean) => void;
   readonly onPassContinuity?: (sceneId: number) => void;
   readonly onRegenerateWithFeedback?: (
@@ -182,6 +183,7 @@ export function ProductionPanel({
   hasFinalScript,
   onGenerateProduction,
   onGenerateConcepts,
+  onGenerateAssetSheet,
   onGenerateSceneImage,
   onGenerateAllSceneImages,
   onGenerateSceneVideo,
@@ -201,8 +203,12 @@ export function ProductionPanel({
 }: ProductionPanelProps) {
   const [expandedPromptId, setExpandedPromptId] = useState<number | null>(null);
   const [imageModel, setImageModel] = useState<string>("nano_banana_pro");
-  const [videoModel, setVideoModel] = useState<string>("kling_o3_flf");
-  const isCurrentFlowVideo = videoModel.startsWith("flow_") || videoModel.endsWith("_flow") || VIDEO_MODELS.find((m) => m.id === videoModel)?.provider === "Google Flow";
+  const [videoModel, setVideoModel] = useState<string>("wan3_0");
+  const isCurrentFlowVideo = videoModel.startsWith("flow_") || videoModel.endsWith("_flow") || VIDEO_MODELS.find((m) => m.id === videoModel)?.platform === "flow";
+  const isCurrentFlowImage = imageModel.startsWith("flow_") || imageModel.endsWith("_flow") || IMAGE_MODELS.find((m) => m.id === imageModel)?.platform === "flow";
+
+  const [useAssetSheet, setUseAssetSheet] = useState<boolean>(true);
+  const [isGeneratingAssetSheet, setIsGeneratingAssetSheet] = useState<boolean>(false);
 
   const [modalMode, setModalMode] = useState<"image" | "video" | null>(null);
   const [multiShotsMap, setMultiShotsMap] = useState<Record<number, boolean>>({});
@@ -211,7 +217,7 @@ export function ProductionPanel({
   const [videoFeedbackMap, setVideoFeedbackMap] = useState<Record<number, string>>({});
   const [feedbackLoadingMap, setFeedbackLoadingMap] = useState<Record<string, string | null>>({});
   const [busySceneId, setBusySceneId] = useState<number | null>(null);
-  const [busyAction, setBusyAction] = useState<"image" | "video" | "all_images" | "all_videos" | "render" | "tts" | null>(null);
+  const [busyAction, setBusyAction] = useState<"image" | "video" | "all_images" | "missing_images" | "all_videos" | "missing_videos" | "render" | "tts" | null>(null);
   const [busyImageScenes, setBusyImageScenes] = useState<Record<number, boolean>>({});
   const [busyVideoScenes, setBusyVideoScenes] = useState<Record<number, boolean>>({});
   const [batchProgressText, setBatchProgressText] = useState<string | null>(null);
@@ -318,9 +324,9 @@ export function ProductionPanel({
   };
 
   useEffect(() => {
-    if (propVideoTitle !== undefined) {
+    if (propVideoTitle && propVideoTitle.trim()) {
       setVideoTitle(propVideoTitle);
-    } else if (projectTitle && !videoTitle) {
+    } else if (projectTitle && projectTitle.trim() && projectTitle.trim() !== "untitled") {
       setVideoTitle(projectTitle);
     }
   }, [propVideoTitle, projectTitle]);
@@ -371,11 +377,24 @@ export function ProductionPanel({
     }
   };
 
+  const handleGenerateAssetSheetClick = async () => {
+    if (!onGenerateAssetSheet) return;
+    setIsGeneratingAssetSheet(true);
+    try {
+      await onGenerateAssetSheet(imageModel);
+    } catch (err) {
+      console.error("Failed to generate master asset sheet", err);
+    } finally {
+      setIsGeneratingAssetSheet(false);
+    }
+  };
+
   const handleSceneImageClick = async (sceneId: number) => {
     if (!onGenerateSceneImage) return;
     setBusyImageScenes((prev) => ({ ...prev, [sceneId]: true }));
     try {
-      await onGenerateSceneImage(sceneId, imageModel);
+      const effectiveUse = useAssetSheet;
+      await onGenerateSceneImage(sceneId, imageModel, effectiveUse);
     } finally {
       setBusyImageScenes((prev) => {
         const next = { ...prev };
@@ -399,11 +418,21 @@ export function ProductionPanel({
     }
   };
 
-  const handleAllImagesClick = async () => {
+  const handleAllImagesClick = async (onlyMissing: boolean = false) => {
     if (!onGenerateAllSceneImages) return;
-    setBusyAction("all_images");
+    setBusyAction(onlyMissing ? "missing_images" : "all_images");
     try {
-      await onGenerateAllSceneImages(imageModel);
+      const effectiveUse = useAssetSheet;
+      // 🛡️ 에셋 시트 참조가 켜져 있는데 아직 에셋 시트가 없다면 자동으로 먼저 생성
+      if (effectiveUse && !productionState?.asset_sheet?.has_sheet && onGenerateAssetSheet) {
+        setIsGeneratingAssetSheet(true);
+        try {
+          await onGenerateAssetSheet(imageModel);
+        } finally {
+          setIsGeneratingAssetSheet(false);
+        }
+      }
+      await onGenerateAllSceneImages(imageModel, effectiveUse, onlyMissing);
     } finally {
       setBusyAction(null);
     }
@@ -469,10 +498,11 @@ export function ProductionPanel({
     fileInputRef.current?.click();
   };
 
-  const handleThumbnailFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleThumbnailFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && onUploadThumbnail) {
-      onUploadThumbnail(file);
+      await onUploadThumbnail(file);
+      setRenderKey(Date.now());
     }
     e.target.value = "";
   };
@@ -482,6 +512,7 @@ export function ProductionPanel({
     setBusyAction("thumbnail" as any);
     try {
       await onGenerateThumbnail(imageModel);
+      setRenderKey(Date.now());
     } finally {
       setBusyAction(null);
     }
@@ -492,6 +523,7 @@ export function ProductionPanel({
     setBusyAction("thumbnail" as any);
     try {
       await onSetThumbnailFromScene(sceneId);
+      setRenderKey(Date.now());
     } finally {
       setBusyAction(null);
     }
@@ -502,31 +534,50 @@ export function ProductionPanel({
     setBusyAction("thumbnail" as any);
     try {
       await onDeleteThumbnail();
+      setRenderKey(Date.now());
     } finally {
       setBusyAction(null);
     }
   };
 
-  const handleAllVideosAndRender = async () => {
+  const handleAllVideosAndRender = async (onlyMissing: boolean = false) => {
     if (!onGenerateSceneVideo || videoScenes.length === 0) return;
-    setBusyAction("all_videos");
+    setBusyAction(onlyMissing ? "missing_videos" : "all_videos");
     setRenderError(null);
     try {
+      // 미완료 씬만 생성 옵션인 경우 비디오가 아직 없는 씬만 선별
+      const targetScenes = onlyMissing
+        ? videoScenes.filter((s) => !s.generated_video_url && !s.is_locked)
+        : videoScenes.filter((s) => !s.is_locked);
+
+      if (targetScenes.length === 0) {
+        // 이미 대상 씬의 비디오가 모두 준비된 경우 바로 렌더링 진행
+        if (onRenderShorts) {
+          setBatchProgressText("🎬 모든 씬 비디오가 이미 준비되어 있습니다. Remotion 9:16 최종 쇼츠 렌더링 중...");
+          await onRenderShorts(videoTitle);
+          setRenderKey(Date.now());
+        }
+        return;
+      }
+
       // 앞 씬 매칭(원테이크)을 사용하는 씬이 하나라도 있는지 확인 (Flow CLI 모델은 원테이크 미지원으로 항상 false)
-      const hasAnyMatched = !isCurrentFlowVideo && videoScenes.filter((s) => s.scene_id > 1).some((sc) => {
+      const hasAnyMatched = !isCurrentFlowVideo && targetScenes.filter((s) => s.scene_id > 1).some((sc) => {
         return matchPrevMap[sc.scene_id] !== false;
       });
 
-      if (hasAnyMatched) {
-        // [순차 모드] 앞 씬 매칭이 켜져 있는 경우: 이전 씬의 마지막 비디오 프레임이 필요하므로 순차적으로 차례대로 생성
-        for (let i = 0; i < videoScenes.length; i++) {
-          const sc = videoScenes[i];
+      // 힉스필드 계정은 동시성 1개 제한이 있으므로 무조건 순차 실행, Google Flow 모델만 워커 풀 병렬 실행
+      const isSequential = hasAnyMatched || !isCurrentFlowVideo;
+
+      if (isSequential) {
+        // [순차 모드] 앞 씬 매칭이 켜져 있거나 힉스필드 모델인 경우: 차례대로 1개씩 안전하게 생성
+        for (let i = 0; i < targetScenes.length; i++) {
+          const sc = targetScenes[i];
           const scId = sc.scene_id;
           const isMatched = isCurrentFlowVideo ? false : (scId > 1 ? (matchPrevMap[scId] !== false) : false);
           const isMulti = multiShotsMap[scId] ?? false;
           const dur = Math.max(4, Math.round(sc.target_duration));
 
-          setBatchProgressText(`[${i + 1}/${videoScenes.length}] Scene ${scId} AI 비디오 순차 생성 중... (${currentVideoModel.name})`);
+          setBatchProgressText(`[${i + 1}/${targetScenes.length}] Scene ${scId} AI 비디오 생성 중... (${currentVideoModel.name})`);
           setBusySceneId(scId);
           setBusyVideoScenes((prev) => ({ ...prev, [scId]: true }));
 
@@ -541,15 +592,15 @@ export function ProductionPanel({
           }
         }
       } else {
-        // [병렬 모드] 앞 씬 매칭을 안 쓸 때: 모든 씬을 병렬(Promise.all)로 동시 생성!
-        setBatchProgressText(`⚡ 모든 씬 (${videoScenes.length}개) AI 비디오 동시 병렬 생성 중... (${currentVideoModel.name})`);
+        // [병렬 모드] Google Flow 모델 전용: 멀티 워커 풀을 통한 동시 병렬 생성!
+        setBatchProgressText(`⚡ 대상 씬 (${targetScenes.length}개) AI 비디오 동시 병렬 생성 중... (${currentVideoModel.name})`);
 
-        // 모든 씬을 busy 상태로 즉시 표시
+        // 대상 씬들만 busy 상태로 표시
         const initialBusy: Record<number, boolean> = {};
-        videoScenes.forEach((s) => { initialBusy[s.scene_id] = true; });
+        targetScenes.forEach((s) => { initialBusy[s.scene_id] = true; });
         setBusyVideoScenes(initialBusy);
 
-        const videoPromises = videoScenes.map(async (sc) => {
+        const videoPromises = targetScenes.map(async (sc) => {
           const scId = sc.scene_id;
           const isMulti = multiShotsMap[scId] ?? false;
           const dur = Math.max(4, Math.round(sc.target_duration));
@@ -569,12 +620,18 @@ export function ProductionPanel({
 
       setBusySceneId(null);
       if (onRenderShorts) {
-        setBatchProgressText("🎬 모든 씬 비디오 생성 완료! Remotion 9:16 최종 쇼츠 렌더링 중...");
+        setBatchProgressText("🎬 모든 씬 비디오 준비 완료! Remotion 9:16 최종 쇼츠 렌더링 중...");
         await onRenderShorts(videoTitle);
         setRenderKey(Date.now());
       }
     } catch (err) {
-      setRenderError(err instanceof Error ? err.message : "비디오 일괄 생성 및 렌더링 중 오류가 발생했습니다.");
+      let rawMsg = err instanceof Error ? err.message : "비디오 일괄 생성 및 렌더링 중 오류가 발생했습니다.";
+      if (rawMsg.includes("job_minimum_basic_plan_required")) {
+        rawMsg = "⚠️ 힉스필드 안내: 선택하신 모델(Kling/Seedance 등)은 유료 구독(Basic 플랜 이상)이 필요합니다. 무료 계정에서는 'Wan 3.0 Video' 또는 'Google Flow' 모델을 선택해주세요!";
+      } else if (rawMsg.includes("rate_limit_reached")) {
+        rawMsg = "⚠️ 힉스필드 안내: 이전 작업이 아직 생성 중이거나 동시 실행 한도(1개)에 도달했습니다. 잠시 후 다시 시도해주세요.";
+      }
+      setRenderError(rawMsg);
     } finally {
       setBusySceneId(null);
       setBusyAction(null);
@@ -653,7 +710,7 @@ export function ProductionPanel({
           <h2 id="production-title">TTS Voice & Video Scene Continuity</h2>
         </div>
         <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
-          {/* 7번 단계 상태 뱃지 (진행 중 ⏳ / 완료 ✓) */}
+          {/* 간결한 현재 작업 상태 뱃지만 유지 (실제 액션 버튼들은 아래 1~4단계 파이프라인 카드에 배치) */}
           {busyAction === "tts" ? (
             <span
               style={{
@@ -671,40 +728,6 @@ export function ProductionPanel({
             >
               <span className="spinner-icon">⏳</span> 7단계 1.2배속 음성 생성 & 씬 분할 진행 중...
             </span>
-          ) : busyAction === "video" && busySceneId ? (
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                background: "rgba(168, 85, 247, 0.2)",
-                color: "#c084fc",
-                border: "1.5px solid #c084fc",
-                padding: "5px 12px",
-                borderRadius: "6px",
-                fontSize: "12px",
-                fontWeight: "bold"
-              }}
-            >
-              <span className="spinner-icon">⏳</span> Scene {busySceneId} 비디오 생성 진행 중 ({currentVideoModel.name})...
-            </span>
-          ) : busyAction === "image" && busySceneId ? (
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                background: "rgba(56, 189, 248, 0.2)",
-                color: "#38bdf8",
-                border: "1.5px solid #38bdf8",
-                padding: "5px 12px",
-                borderRadius: "6px",
-                fontSize: "12px",
-                fontWeight: "bold"
-              }}
-            >
-              <span className="spinner-icon">⏳</span> Scene {busySceneId} 이미지 생성 진행 중 ({currentImageModel.name})...
-            </span>
           ) : busyAction === "all_videos" ? (
             <span
               style={{
@@ -720,9 +743,9 @@ export function ProductionPanel({
                 fontWeight: "bold"
               }}
             >
-              <span className="spinner-icon">⏳</span> {batchProgressText || "전체 비디오 일괄 생성 진행 중..."}
+              <span className="spinner-icon">⏳</span> {batchProgressText || "전체 비디오 일괄 생성 & 렌더링 진행 중..."}
             </span>
-          ) : busyAction === "all_images" ? (
+          ) : busyAction === "all_images" || busyAction === "missing_images" ? (
             <span
               style={{
                 display: "inline-flex",
@@ -739,22 +762,22 @@ export function ProductionPanel({
             >
               <span className="spinner-icon">⏳</span> 전체 씬 AI 이미지 일괄 생성 진행 중...
             </span>
-          ) : isBusy ? (
+          ) : hasFinalVideo ? (
             <span
               style={{
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "6px",
-                background: "rgba(56, 189, 248, 0.2)",
-                color: "#38bdf8",
-                border: "1.5px solid #38bdf8",
+                background: "rgba(34, 197, 94, 0.18)",
+                color: "#4ade80",
+                border: "1.5px solid #4ade80",
                 padding: "5px 12px",
                 borderRadius: "6px",
                 fontSize: "12px",
                 fontWeight: "bold"
               }}
             >
-              <span className="spinner-icon">⏳</span> 7단계 음성 생성 및 씬 분할 진행 중...
+              ✓ 쇼츠 영상 완성 (final.mp4)
             </span>
           ) : hasAudio ? (
             <span
@@ -774,318 +797,10 @@ export function ProductionPanel({
               ✓ 7단계 음성 생성 & 씬 분할 완료 ({videoScenes.length > 0 ? `총 ${videoScenes.length}개 씬` : "완료"})
             </span>
           ) : null}
-
-          <button
-            className={hasAudio ? "secondary-button" : "primary-button"}
-            disabled={isBusy || busyAction === "tts" || !hasFinalScript}
-            onClick={handleProductionTtsClick}
-            type="button"
-            aria-label="Generate TTS voice"
-            style={{
-              padding: "6px 14px",
-              fontSize: "13px",
-              fontWeight: "bold",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "6px"
-            }}
-          >
-            {busyAction === "tts" || isBusy ? (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                <span className="spinner-icon">⏳</span> 7. 1.2배속 음성 생성 진행 중...
-              </span>
-            ) : hasAudio ? (
-              "🔄 7. 음성 다시 생성"
-            ) : (
-              "7. 🎙️ 1.2배속 음성 생성 & 씬 분할"
-            )}
-          </button>
-
-          {onGenerateAllSceneImages && videoScenes.length > 0 && (
-            <button
-              className="primary-button"
-              disabled={isBusy || Object.keys(busyImageScenes).length > 0}
-              onClick={handleAllImagesClick}
-              type="button"
-              aria-label="Generate all scene images"
-            >
-              {busyAction === "all_images" ? (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                  <span className="spinner-icon">⏳</span> 전체 씬 AI 이미지 일괄 생성 중...
-                </span>
-              ) : Object.keys(busyImageScenes).length > 0 ? (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                  <span className="spinner-icon">⏳</span> 개별 씬 이미지 생성 중 ({Object.keys(busyImageScenes).length}개)...
-                </span>
-              ) : isBusy ? (
-                "처리 중..."
-              ) : (
-                `🖼️ 전체 씬 AI 이미지 일괄 생성 (${currentImageModel.name})`
-              )}
-            </button>
-          )}
-
-          {onGenerateSceneVideo && videoScenes.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%" }}>
-              <button
-                className="primary-button"
-                disabled={isBusy || Object.keys(busyVideoScenes).length > 0 || Object.keys(busyImageScenes).length > 0}
-                onClick={handleAllVideosAndRender}
-                type="button"
-                aria-label="Generate all scene videos and render final shorts"
-                style={{
-                  background: "linear-gradient(90deg, #7c3aed 0%, #db2777 100%)",
-                  border: "none",
-                  boxShadow: "0 4px 14px rgba(124, 58, 237, 0.4)",
-                  fontWeight: "bold",
-                  color: "#ffffff"
-                }}
-                title="각 씬의 [앞 씬 매칭] 및 [멀티샷] 체크 설정을 바탕으로 비디오를 일괄 생성한 뒤 Remotion 최종 쇼츠로 자동 합성합니다"
-              >
-                {busyAction === "all_videos" ? (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                    <span className="spinner-icon">⏳</span> {batchProgressText || "비디오 일괄 생성 및 렌더링 중..."}
-                  </span>
-                ) : Object.keys(busyVideoScenes).length > 0 ? (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                    <span className="spinner-icon">⏳</span> 개별 씬 영상 생성 중 ({Object.keys(busyVideoScenes).length}개)...
-                  </span>
-                ) : isBusy ? (
-                  "처리 중..."
-                ) : allMatchPrevOn ? (
-                  `🎬 전체 씬 AI 영상 순차 생성 & 렌더링 [원테이크 2장 연결] (${currentVideoModel.name})`
-                ) : isCurrentFlowVideo ? (
-                  `⚡ 전체 씬 AI 영상 3개 병렬 생성 & 렌더링 [Google Flow 고속 모드] (${currentVideoModel.name})`
-                ) : (
-                  `⚡ 전체 씬 AI 영상 동시 병렬 생성 & 렌더링 [고속 독립 모드] (${currentVideoModel.name})`
-                )}
-              </button>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  padding: "6px 12px",
-                  background: "rgba(124, 58, 237, 0.12)",
-                  border: "1px dashed rgba(168, 85, 247, 0.45)",
-                  borderRadius: "8px",
-                  fontSize: "12px",
-                  color: "#e2e8f0"
-                }}
-              >
-                <span style={{ color: "#c084fc", fontWeight: "bold" }}>🏷️ 쇼츠 상단 고정 타이틀 (처음부터 끝까지 노출):</span>
-                {videoTitle.trim() ? (
-                  <span style={{ color: "#38bdf8", fontWeight: "bold", whiteSpace: "pre-line" }}>
-                    "{videoTitle.replace(/\n/g, " / ")}"
-                  </span>
-                ) : (
-                  <span style={{ color: "#94a3b8", fontStyle: "italic" }}>
-                    (대본 초안 피드백 밑에서 입력한 제목이 여기에 자동 반영됩니다 / 비워둘 경우 제목 생략)
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* 🚀 씬별 비디오 설정 퀵 컨트롤 매트릭스 (씬 개수에 따라 동적 렌더링) */}
-      {videoScenes.length > 0 && (
-        <div
-          style={{
-            background: "linear-gradient(180deg, rgba(30, 41, 59, 0.75) 0%, rgba(15, 23, 42, 0.85) 100%)",
-            border: "1.5px solid rgba(56, 189, 248, 0.3)",
-            borderRadius: "12px",
-            padding: "1rem 1.25rem",
-            margin: "0.4rem 0 1.2rem 0",
-            display: "flex",
-            flexDirection: "column",
-            gap: "0.85rem",
-            boxShadow: "0 4px 20px rgba(0, 0, 0, 0.25)"
-          }}
-        >
-          {/* 헤더 & 일괄 전체 토글 버튼 */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.8rem", borderBottom: "1px solid rgba(255, 255, 255, 0.08)", paddingBottom: "0.75rem" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontSize: "20px" }}>🎛️</span>
-              <div>
-                <strong style={{ color: "#38bdf8", fontSize: "14px" }}>
-                  씬별 비디오 생성 퀵 설정 바 (총 {videoScenes.length}개 씬)
-                </strong>
-                <p style={{ margin: "2px 0 0 0", color: "#94a3b8", fontSize: "12px" }}>
-                  각 씬마다 [앞 씬 매칭]과 [멀티샷]을 여기서 한 번에 설정할 수 있습니다. (아래 씬 카드와 실시간 양방향 동기화)
-                </p>
-              </div>
-            </div>
 
-            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={toggleAllMatchPrev}
-                disabled={isBusy || Boolean(isCurrentFlowVideo)}
-                style={{
-                  fontSize: "12px",
-                  padding: "5px 11px",
-                  borderRadius: "6px",
-                  cursor: (isBusy || isCurrentFlowVideo) ? "not-allowed" : "pointer",
-                  background: isCurrentFlowVideo
-                    ? "rgba(255, 255, 255, 0.02)"
-                    : allMatchPrevOn
-                    ? "rgba(56, 189, 248, 0.25)"
-                    : "rgba(255, 255, 255, 0.05)",
-                  border: isCurrentFlowVideo
-                    ? "1px dashed rgba(255, 255, 255, 0.15)"
-                    : allMatchPrevOn
-                    ? "1.5px solid #38bdf8"
-                    : "1px solid rgba(255, 255, 255, 0.2)",
-                  color: isCurrentFlowVideo ? "#64748b" : (allMatchPrevOn ? "#38bdf8" : "#94a3b8"),
-                  fontWeight: "bold",
-                  opacity: isCurrentFlowVideo ? 0.65 : 1,
-                  transition: "all 0.15s ease"
-                }}
-                title={
-                  isCurrentFlowVideo
-                    ? "Google Flow CLI 모델은 단일 이미지 모션 전용으로 원테이크(앞 씬 매칭)를 지원하지 않습니다."
-                    : "Scene 2 이상 모든 씬의 앞 씬 매칭을 한 번에 켜거나 끕니다"
-                }
-              >
-                {isCurrentFlowVideo
-                  ? "🚫 전체 매칭: Flow 미지원 (OFF 고정)"
-                  : `⚡ 전체 매칭: ${allMatchPrevOn ? "전체 ON (2장 연결)" : "전체/일부 OFF"}`}
-              </button>
-
-              <button
-                type="button"
-                onClick={toggleAllMultiShots}
-                disabled={isBusy}
-                style={{
-                  fontSize: "12px",
-                  padding: "5px 11px",
-                  borderRadius: "6px",
-                  cursor: isBusy ? "not-allowed" : "pointer",
-                  background: allMultiShotsOn ? "rgba(244, 63, 94, 0.25)" : "rgba(255, 255, 255, 0.05)",
-                  border: allMultiShotsOn ? "1.5px solid #f43f5e" : "1px solid rgba(255, 255, 255, 0.2)",
-                  color: allMultiShotsOn ? "#fb7185" : "#94a3b8",
-                  fontWeight: "bold",
-                  transition: "all 0.15s ease"
-                }}
-                title="모든 씬의 멀티샷을 한 번에 켜거나 끕니다"
-              >
-                ⚡ 전체 멀티샷: {allMultiShotsOn ? "전체 ON" : "전체 OFF"}
-              </button>
-            </div>
-          </div>
-
-          {/* 씬 개수(N개)에 맞게 가로 그리드로 척척 렌더링되는 씬별 칩 목록! */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-              gap: "0.6rem"
-            }}
-          >
-            {videoScenes.map((sc) => {
-              const scId = sc.scene_id;
-              const isMatched = isCurrentFlowVideo ? false : (scId > 1 ? (matchPrevMap[scId] !== false) : false);
-              const isMulti = multiShotsMap[scId] ?? false;
-
-              return (
-                <div
-                  key={scId}
-                  style={{
-                    background: "rgba(255, 255, 255, 0.04)",
-                    border: "1px solid rgba(255, 255, 255, 0.09)",
-                    borderRadius: "8px",
-                    padding: "0.5rem 0.75rem",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "0.5rem"
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    <span
-                      style={{
-                        background: "#2563eb",
-                        color: "#fff",
-                        padding: "2px 7px",
-                        borderRadius: "4px",
-                        fontSize: "11px",
-                        fontWeight: "bold"
-                      }}
-                    >
-                      S{scId}
-                    </span>
-                    <span style={{ fontSize: "11px", color: "#94a3b8" }}>
-                      ({sc.target_duration.toFixed(1)}s)
-                    </span>
-                  </div>
-
-                  <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
-                    {scId > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (isCurrentFlowVideo) return;
-                          setMatchPrevMap((prev) => ({ ...prev, [scId]: !isMatched }));
-                        }}
-                        disabled={isBusy || Boolean(isCurrentFlowVideo)}
-                        style={{
-                          fontSize: "11px",
-                          padding: "3px 7px",
-                          borderRadius: "5px",
-                          cursor: (isBusy || isCurrentFlowVideo) ? "not-allowed" : "pointer",
-                          background: isCurrentFlowVideo
-                            ? "rgba(255, 255, 255, 0.02)"
-                            : isMatched
-                            ? "rgba(56, 189, 248, 0.2)"
-                            : "rgba(255, 255, 255, 0.05)",
-                          border: isCurrentFlowVideo
-                            ? "1px dashed rgba(255, 255, 255, 0.15)"
-                            : isMatched
-                            ? "1.5px solid #38bdf8"
-                            : "1px dashed rgba(255, 255, 255, 0.25)",
-                          color: isCurrentFlowVideo ? "#64748b" : (isMatched ? "#38bdf8" : "#94a3b8"),
-                          fontWeight: (!isCurrentFlowVideo && isMatched) ? "bold" : "normal",
-                          opacity: isCurrentFlowVideo ? 0.6 : 1,
-                          transition: "all 0.15s ease"
-                        }}
-                        title={
-                          isCurrentFlowVideo
-                            ? "Google Flow CLI 모델은 단일 이미지 모션 전용으로 앞 씬 매칭(원테이크)을 지원하지 않습니다."
-                            : `Scene ${scId} 앞 씬 매칭 (클릭하여 토글)`
-                        }
-                      >
-                        {isCurrentFlowVideo ? "🚫 Flow 미지원" : isMatched ? "🔗 앞씬매칭 ON" : "🔗 앞씬매칭 OFF"}
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => setMultiShotsMap((prev) => ({ ...prev, [scId]: !isMulti }))}
-                      disabled={isBusy}
-                      style={{
-                        fontSize: "11px",
-                        padding: "3px 7px",
-                        borderRadius: "5px",
-                        cursor: isBusy ? "not-allowed" : "pointer",
-                        background: isMulti ? "rgba(244, 63, 94, 0.2)" : "rgba(255, 255, 255, 0.05)",
-                        border: isMulti ? "1.5px solid #f43f5e" : "1px dashed rgba(255, 255, 255, 0.25)",
-                        color: isMulti ? "#fb7185" : "#94a3b8",
-                        fontWeight: isMulti ? "bold" : "normal",
-                        transition: "all 0.15s ease"
-                      }}
-                      title={`Scene ${scId} 멀티샷 (클릭하여 토글)`}
-                    >
-                      {isMulti ? "🎥 멀티샷 ON" : "🎥 멀티샷 OFF"}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* 일괄 생성 진행 중 실시간 진행 상황 배너 */}
       {busyAction === "all_videos" && batchProgressText && (
@@ -1121,171 +836,855 @@ export function ProductionPanel({
         </p>
       ) : (
         <div className="production-content" style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-          {/* 🎛️ AI 생성 모델 및 스타일 선택 3종 카드 (모달 연동) */}
+          
+          {/* ========================================================================= */}
+          {/* 🎙️ STEP 1. TTS 나레이션 음성 생성 & 씬 분할                               */}
+          {/* ========================================================================= */}
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
-              gap: "0.75rem",
-              background: "rgba(255, 255, 255, 0.02)",
-              padding: "0.85rem",
-              borderRadius: "10px",
-              border: "1px solid rgba(255, 255, 255, 0.08)"
+              background: "#ffffff",
+              border: "1.5px solid #cbd5e1",
+              borderRadius: "12px",
+              padding: "1.1rem",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
             }}
           >
-            {/* 이미지 모델 셀렉터 */}
             <div
-              onClick={() => setModalMode("image")}
               style={{
-                background: "rgba(15, 23, 42, 0.7)",
-                border: "1px solid rgba(56, 189, 248, 0.3)",
-                borderRadius: "10px",
-                padding: "0.85rem 1rem",
-                cursor: "pointer",
                 display: "flex",
-                alignItems: "center",
                 justifyContent: "space-between",
-                transition: "all 0.15s ease"
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "12px",
+                marginBottom: audioUrl ? "0.85rem" : 0
               }}
-              title="클릭하여 다른 이미지 생성 모델로 변경"
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
-                <div style={{ width: "38px", height: "38px", borderRadius: "8px", background: "rgba(56, 189, 248, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", flexShrink: 0 }}>
-                  🖼️
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <strong style={{ fontSize: "15px", color: "#0f172a" }}>
+                    🎙️ 1단계. 나레이션 음성 생성 & 씬 분할 (Qwen3-TTS)
+                  </strong>
+                  {hasAudio && (
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        background: "#dcfce7",
+                        color: "#15803d",
+                        padding: "2px 8px",
+                        borderRadius: "12px",
+                        fontWeight: 600
+                      }}
+                    >
+                      ✓ 1.2배속 음성 준비됨 {duration ? `(${duration.toFixed(1)}초)` : ""}
+                    </span>
+                  )}
                 </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: "11px", color: "#38bdf8", fontWeight: "600", marginBottom: "2px" }}>
-                    이미지 모델 선택 (클릭하여 변경)
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                    <strong style={{ fontSize: "0.95rem", color: "#f8fafc" }}>{currentImageModel.name}</strong>
-                    {currentImageModel.badge && (
-                      <span style={{ fontSize: "10px", background: "#0284c7", color: "#fff", padding: "1px 5px", borderRadius: "3px", fontWeight: "bold" }}>
-                        {currentImageModel.badge}
-                      </span>
-                    )}
-                  </div>
-                  <p style={{ margin: 0, color: "#94a3b8", fontSize: "11px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {currentImageModel.description}
-                  </p>
-                </div>
+                <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: "#64748b" }}>
+                  최종 확정된 대본을 기반으로 1.2배속 AI 음성을 합성하고, 문장 단위로 비디오 씬을 자동 정렬합니다.
+                </p>
               </div>
-              <div style={{ color: "#38bdf8", fontSize: "18px", fontWeight: "bold", paddingLeft: "0.5rem" }}>›</div>
+
+              <button
+                className={hasAudio ? "secondary-button" : "primary-button"}
+                disabled={isBusy || busyAction === "tts" || !hasFinalScript}
+                onClick={handleProductionTtsClick}
+                type="button"
+                aria-label="Generate TTS voice"
+                style={{
+                  padding: "8px 16px",
+                  fontSize: "13px",
+                  fontWeight: "bold",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px"
+                }}
+              >
+                {busyAction === "tts" || isBusy ? (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    <span className="spinner-icon">⏳</span> 1.2배속 음성 생성 진행 중...
+                  </span>
+                ) : hasAudio ? (
+                  "🔄 1.2배속 음성 다시 생성"
+                ) : (
+                  "🎙️ 1.2배속 음성 생성 & 씬 분할"
+                )}
+              </button>
             </div>
 
-            {/* 비디오 모델 셀렉터 */}
-            <div
-              onClick={() => setModalMode("video")}
-              style={{
-                background: "rgba(15, 23, 42, 0.7)",
-                border: "1px solid rgba(167, 139, 250, 0.3)",
-                borderRadius: "10px",
-                padding: "0.85rem 1rem",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                transition: "all 0.15s ease"
-              }}
-              title="클릭하여 다른 비디오 생성 모델로 변경"
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
-                <div style={{ width: "38px", height: "38px", borderRadius: "8px", background: "rgba(167, 139, 250, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", flexShrink: 0 }}>
-                  🎬
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: "11px", color: "#a78bfa", fontWeight: "600", marginBottom: "2px" }}>
-                    비디오 모델 선택 (클릭하여 변경)
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                    <strong style={{ fontSize: "0.95rem", color: "#f8fafc" }}>{currentVideoModel.name}</strong>
-                    {currentVideoModel.badge && (
-                      <span
-                        style={{
-                          fontSize: "10px",
-                          background:
-                            currentVideoModel.badgeType === "value"
-                              ? "#10b981"
-                              : currentVideoModel.badgeType === "recommended"
-                              ? "#2563eb"
-                              : currentVideoModel.badgeType === "free" || currentVideoModel.badgeType === "new"
-                              ? "#eab308"
-                              : "#7c3aed",
-                          color: currentVideoModel.badgeType === "free" || currentVideoModel.badgeType === "new" ? "#000" : "#fff",
-                          padding: "1px 6px",
-                          borderRadius: "4px",
-                          fontWeight: "bold"
-                        }}
-                      >
-                        {currentVideoModel.badge}
-                      </span>
-                    )}
-                  </div>
-                  <p style={{ margin: 0, color: "#94a3b8", fontSize: "11px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {currentVideoModel.description}
-                  </p>
-                </div>
+            {/* 오디오 플레이어 */}
+            {audioUrl ? (
+              <div
+                style={{
+                  background: "#f8fafc",
+                  padding: "0.75rem 1rem",
+                  borderRadius: "8px",
+                  border: "1px solid #e2e8f0",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px"
+                }}
+              >
+                <span style={{ fontSize: "13px", fontWeight: "bold", color: "#334155", whiteSpace: "nowrap" }}>
+                  🔊 음성 미리듣기:
+                </span>
+                <audio controls src={audioUrl} style={{ width: "100%", height: "36px" }} />
               </div>
-              <div style={{ color: "#a78bfa", fontSize: "18px", fontWeight: "bold", paddingLeft: "0.5rem" }}>›</div>
+            ) : (
+              <p style={{ margin: "0.5rem 0 0 0", fontSize: "12px", color: "#94a3b8", fontStyle: "italic" }}>
+                💡 [1.2배속 음성 생성 & 씬 분할] 버튼을 누르면 성우 나레이션 음성 파일이 생성됩니다.
+              </p>
+            )}
+          </div>
+
+          {/* ========================================================================= */}
+          {/* 🛡️ STEP 2. 비주얼 일관성 에셋 시트 (Master Asset Sheet) (첫번째 이미지 패널)    */}
+          {/* ========================================================================= */}
+          <div
+            style={{
+              background: "#ffffff",
+              border: "1.5px solid #cbd5e1",
+              borderRadius: "12px",
+              padding: "1.1rem",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "12px",
+                marginBottom: "0.85rem",
+                borderBottom: "1px solid #f1f5f9",
+                paddingBottom: "0.75rem"
+              }}
+            >
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <strong style={{ fontSize: "15px", color: "#0f172a" }}>
+                    🛡️ 2단계. 비주얼 일관성 에셋 시트 (Master Asset Sheet)
+                  </strong>
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      background: "#e0e7ff",
+                      color: "#4338ca",
+                      padding: "2px 8px",
+                      borderRadius: "12px",
+                      fontWeight: 600
+                    }}
+                  >
+                    16:9 와이드 단 1회 생성 ➔ 3구역 자동 분할
+                  </span>
+                </div>
+                <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: "#64748b" }}>
+                  캐릭터 전신(좌측 58%)과 핵심 오브제 2개(우측 상/하 42%)를 한 번에 생성하여 일관성을 고정합니다.
+                </p>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <button
+                  type="button"
+                  onClick={handleGenerateAssetSheetClick}
+                  disabled={isBusy || isGeneratingAssetSheet || !hasFinalScript}
+                  className="primary-button"
+                  style={{
+                    padding: "8px 16px",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    background: "linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%)",
+                    border: "none",
+                    borderRadius: "6px",
+                    color: "#ffffff",
+                    cursor: (isBusy || isGeneratingAssetSheet || !hasFinalScript) ? "not-allowed" : "pointer"
+                  }}
+                >
+                  {isGeneratingAssetSheet ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                      <span className="spinner-icon">⏳</span> 에셋 시트 생성 중...
+                    </span>
+                  ) : productionState?.asset_sheet?.has_sheet ? (
+                    "🔄 에셋 시트 다시 생성"
+                  ) : (
+                    "✨ 에셋 시트 생성 (캐릭터 + 오브제 2개)"
+                  )}
+                </button>
+              </div>
             </div>
 
-            {/* 비주얼 스타일 셀렉터 (10종) */}
+            {/* 선택사항 체크버튼 영역 */}
             <div
-              onClick={openStyleModal}
               style={{
-                background: "rgba(15, 23, 42, 0.7)",
-                border: "1px solid rgba(244, 63, 94, 0.35)",
-                borderRadius: "10px",
-                padding: "0.85rem 1rem",
-                cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                transition: "all 0.15s ease"
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: "8px",
+                padding: "8px 12px",
+                marginBottom: "0.85rem"
               }}
-              title="클릭하여 비주얼 스타일(10종) 변경"
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
-                <div style={{ width: "38px", height: "38px", borderRadius: "8px", background: "rgba(244, 63, 94, 0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", flexShrink: 0 }}>
-                  {currentStyleObj.icon || "🎨"}
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: "11px", color: "#fb7185", fontWeight: "600", marginBottom: "2px" }}>
-                    비주얼 스타일 선택 (클릭하여 변경)
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                    <strong style={{ fontSize: "0.95rem", color: "#f8fafc" }}>{currentStyleObj.name}</strong>
-                    <span style={{ fontSize: "10px", background: "#e11d48", color: "#fff", padding: "1px 5px", borderRadius: "3px", fontWeight: "bold" }}>
-                      10종
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  color: "#1e293b",
+                  userSelect: "none"
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={useAssetSheet}
+                  onChange={(e) => setUseAssetSheet(e.target.checked)}
+                  style={{ width: "16px", height: "16px", accentColor: "#4f46e5", cursor: "pointer" }}
+                />
+                <span>에셋 시트 일관성 참조 사용 (선택사항)</span>
+              </label>
+
+              <div>
+                {useAssetSheet ? (
+                  <span
+                    style={{
+                      fontSize: "11.5px",
+                      color: isCurrentFlowImage ? "#1d4ed8" : "#059669",
+                      background: isCurrentFlowImage ? "#dbeafe" : "#d1fae5",
+                      padding: "2px 8px",
+                      borderRadius: "6px",
+                      fontWeight: 600,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px"
+                    }}
+                  >
+                    {isCurrentFlowImage
+                      ? "✨ Google Flow I2I 에셋 시트(캐릭터/소품) 참조 주입 활성화됨"
+                      : "✨ 씬 이미지 생성 시 캐릭터/오브제 자동 선별 주입 활성화됨"}
+                  </span>
+                ) : (
+                  <span style={{ fontSize: "11.5px", color: "#64748b" }}>
+                    (참조 비활성화 상태: 프롬프트 텍스트만으로 씬 이미지 생성)
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* 에셋 시트 미리보기 카드들 (반응형 4열 또는 2x2 유연 줄바꿈 그리드) */}
+            {productionState?.asset_sheet?.has_sheet ? (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+                  gap: "12px",
+                  alignItems: "stretch"
+                }}
+              >
+                {/* 1. 마스터 시트 원본 (16:9) */}
+                <div style={{ background: "#f8fafc", borderRadius: "10px", padding: "10px", border: "1px solid #cbd5e1", display: "flex", flexDirection: "column" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px", gap: "6px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: "bold", color: "#334155", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      🛡️ 통합 마스터 시트
+                    </span>
+                    <span style={{ fontSize: "10px", fontWeight: 600, color: "#475569", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", whiteSpace: "nowrap", flexShrink: 0 }}>
+                      16:9 와이드
                     </span>
                   </div>
-                  <p style={{ margin: 0, color: "#94a3b8", fontSize: "11px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {currentStyleObj.feature}
-                  </p>
+                  <div style={{ flex: 1, minHeight: "130px", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", borderRadius: "6px", background: "#0f172a" }}>
+                    <img
+                      src={`${productionState.asset_sheet.master_sheet_url}?t=${cacheBuster}`}
+                      alt="Master Asset Sheet"
+                      style={{ width: "100%", height: "100%", maxHeight: "130px", objectFit: "contain" }}
+                    />
+                  </div>
+                </div>
+
+                {/* 2. 분할 에셋: 메인 캐릭터 */}
+                <div style={{ background: "#f8fafc", borderRadius: "10px", padding: "10px", border: "1.5px solid #bfdbfe", display: "flex", flexDirection: "column" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px", gap: "6px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: "bold", color: "#1d4ed8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      🧍 {productionState.asset_sheet.character_name || "메인 캐릭터"}
+                    </span>
+                    <span style={{ fontSize: "10px", fontWeight: 600, color: "#1d4ed8", background: "#dbeafe", padding: "2px 6px", borderRadius: "4px", whiteSpace: "nowrap", flexShrink: 0 }}>
+                      턴어라운드
+                    </span>
+                  </div>
+                  <div style={{ flex: 1, minHeight: "130px", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", borderRadius: "6px", background: "#ffffff", border: "1px solid #e2e8f0" }}>
+                    <img
+                      src={`${productionState.asset_sheet.character_url}?t=${cacheBuster}`}
+                      alt="Character Turnaround"
+                      style={{ width: "100%", height: "100%", maxHeight: "130px", objectFit: "contain" }}
+                    />
+                  </div>
+                </div>
+
+                {/* 3. 분할 에셋: 핵심 오브제 1 */}
+                <div style={{ background: "#f8fafc", borderRadius: "10px", padding: "10px", border: "1.5px solid #bbf7d0", display: "flex", flexDirection: "column" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px", gap: "6px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: "bold", color: "#15803d", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      🧪 {productionState.asset_sheet.prop_1_name || "핵심 오브제 1"}
+                    </span>
+                    <span style={{ fontSize: "10px", fontWeight: 600, color: "#15803d", background: "#dcfce7", padding: "2px 6px", borderRadius: "4px", whiteSpace: "nowrap", flexShrink: 0 }}>
+                      소품 1
+                    </span>
+                  </div>
+                  <div style={{ flex: 1, minHeight: "130px", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", borderRadius: "6px", background: "#ffffff", border: "1px solid #e2e8f0" }}>
+                    <img
+                      src={`${productionState.asset_sheet.prop_1_url}?t=${cacheBuster}`}
+                      alt="Hero Prop 1"
+                      style={{ width: "100%", height: "100%", maxHeight: "130px", objectFit: "contain" }}
+                    />
+                  </div>
+                </div>
+
+                {/* 4. 분할 에셋: 핵심 오브제 2 */}
+                <div style={{ background: "#f8fafc", borderRadius: "10px", padding: "10px", border: "1.5px solid #fed7aa", display: "flex", flexDirection: "column" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px", gap: "6px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: "bold", color: "#c2410c", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      📦 {productionState.asset_sheet.prop_2_name || "핵심 오브제 2"}
+                    </span>
+                    <span style={{ fontSize: "10px", fontWeight: 600, color: "#c2410c", background: "#ffedd5", padding: "2px 6px", borderRadius: "4px", whiteSpace: "nowrap", flexShrink: 0 }}>
+                      소품 2
+                    </span>
+                  </div>
+                  <div style={{ flex: 1, minHeight: "130px", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", borderRadius: "6px", background: "#ffffff", border: "1px solid #e2e8f0" }}>
+                    <img
+                      src={`${productionState.asset_sheet.prop_2_url}?t=${cacheBuster}`}
+                      alt="Hero Prop 2"
+                      style={{ width: "100%", height: "100%", maxHeight: "130px", objectFit: "contain" }}
+                    />
+                  </div>
                 </div>
               </div>
-              <div style={{ color: "#fb7185", fontSize: "18px", fontWeight: "bold", paddingLeft: "0.5rem" }}>›</div>
+            ) : (
+              <div
+                style={{
+                  background: "#f8fafc",
+                  border: "1px dashed #cbd5e1",
+                  borderRadius: "8px",
+                  padding: "0.85rem",
+                  textAlign: "center",
+                  fontSize: "12px",
+                  color: "#64748b"
+                }}
+              >
+                💡 아직 생성된 마스터 에셋 시트가 없습니다. <strong>[✨ 에셋 시트 생성]</strong> 버튼을 누르면 단 1회 16:9 와이드 생성으로 캐릭터와 핵심 오브제 2개가 자동 생성 및 분할됩니다.
+              </div>
+            )}
+          </div>
+
+          {/* ========================================================================= */}
+          {/* 🖼️ STEP 3. 전체 씬 AI 이미지 일괄 생성                                    */}
+          {/* ========================================================================= */}
+          <div
+            style={{
+              background: "#ffffff",
+              border: "1.5px solid #cbd5e1",
+              borderRadius: "12px",
+              padding: "1.1rem",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "12px"
+              }}
+            >
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <strong style={{ fontSize: "15px", color: "#0f172a" }}>
+                    🖼️ 3단계. 전체 씬 AI 이미지 일괄 생성
+                  </strong>
+                  <button
+                    type="button"
+                    onClick={() => setModalMode("image")}
+                    style={{
+                      background: "rgba(56, 189, 248, 0.15)",
+                      border: "1px solid #0284c7",
+                      color: "#0369a1",
+                      padding: "3px 8px",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      cursor: "pointer"
+                    }}
+                    title="클릭하여 이미지 생성 모델 변경"
+                  >
+                    🖼️ 모델: {currentImageModel.name} ▾
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openStyleModal}
+                    style={{
+                      background: "rgba(244, 63, 94, 0.1)",
+                      border: "1px solid #e11d48",
+                      color: "#be123c",
+                      padding: "3px 8px",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      cursor: "pointer"
+                    }}
+                    title="클릭하여 비주얼 스타일 변경"
+                  >
+                    🎨 스타일: {currentStyleObj.name} ▾
+                  </button>
+                </div>
+                <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: "#64748b" }}>
+                  2단계 에셋 시트의 캐릭터와 핵심 소품을 레퍼런스로 주입하여 전체 씬의 시작 키프레임 이미지를 일괄 생성합니다.
+                </p>
+              </div>
+
+              {onGenerateAllSceneImages && videoScenes.length > 0 && (() => {
+                const unlockedScenes = videoScenes.filter((sc) => !sc.is_locked);
+                const missingCount = unlockedScenes.filter((sc) => !sc.has_image).length;
+                const hasExisting = unlockedScenes.some((sc) => sc.has_image);
+
+                return (
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                    {hasExisting && missingCount > 0 && (
+                      <button
+                        className="primary-button"
+                        disabled={isBusy || Object.keys(busyImageScenes).length > 0}
+                        onClick={() => handleAllImagesClick(true)}
+                        type="button"
+                        style={{
+                          padding: "8px 14px",
+                          background: "linear-gradient(135deg, #059669 0%, #10b981 100%)",
+                          borderColor: "#059669",
+                          fontWeight: "bold",
+                          boxShadow: "0 2px 8px rgba(16, 185, 129, 0.3)"
+                        }}
+                        title="이미지가 아직 없는 미완료 씬들만 선별하여 차례대로 생성합니다"
+                      >
+                        {busyAction === "missing_images" ? (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                            <span className="spinner-icon">⏳</span> 미완료 씬 이미지 생성 중...
+                          </span>
+                        ) : (
+                          `⚡ 미완료 씬만 AI 이미지 생성 (${missingCount}개)`
+                        )}
+                      </button>
+                    )}
+
+                    <button
+                      className={hasExisting && missingCount > 0 ? "secondary-button" : "primary-button"}
+                      disabled={isBusy || Object.keys(busyImageScenes).length > 0}
+                      onClick={() => handleAllImagesClick(false)}
+                      type="button"
+                      aria-label="Generate all scene images"
+                      style={{ padding: "8px 16px", fontWeight: "bold" }}
+                    >
+                      {busyAction === "all_images" ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                          <span className="spinner-icon">⏳</span> 전체 씬 AI 이미지 일괄 생성 중...
+                        </span>
+                      ) : Object.keys(busyImageScenes).length > 0 ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                          <span className="spinner-icon">⏳</span> 개별 씬 이미지 생성 중 ({Object.keys(busyImageScenes).length}개)...
+                        </span>
+                      ) : isBusy ? (
+                        "처리 중..."
+                      ) : hasExisting && missingCount > 0 ? (
+                        `🔄 전체 씬 일괄 재생성 (${currentImageModel.name})`
+                      ) : (
+                        `🖼️ 전체 씬 AI 이미지 일괄 생성 (${currentImageModel.name})`
+                      )}
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
-          {/* 오디오 플레이어 영역 */}
-          <div className="audio-player-box" style={{ background: "rgba(255, 255, 255, 0.04)", padding: "1rem", borderRadius: "8px", border: "1px solid rgba(255, 255, 255, 0.1)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-              <strong>🔊 1.2배속 나레이션 오디오 (output_1.2x.wav)</strong>
-              {duration ? (
-                <span className="state-pill state-pill--succeeded">
-                  재생 시간: {duration.toFixed(1)}초
+          {/* ========================================================================= */}
+          {/* 🎬 STEP 4. 전체 씬 AI 영상 생성 & Remotion 렌더링                          */}
+          {/* ========================================================================= */}
+          <div
+            style={{
+              background: "linear-gradient(180deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%)",
+              border: "1.5px solid rgba(168, 85, 247, 0.4)",
+              borderRadius: "12px",
+              padding: "1.1rem 1.25rem",
+              boxShadow: "0 4px 20px rgba(0, 0, 0, 0.25)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.9rem"
+            }}
+          >
+            {/* 상단 헤더 & 액션 버튼 */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <strong style={{ fontSize: "15px", color: "#f8fafc" }}>
+                    🎬 4단계. 전체 씬 AI 영상 생성 & 쇼츠 렌더링
+                  </strong>
+                  <button
+                    type="button"
+                    onClick={() => setModalMode("video")}
+                    style={{
+                      background: "rgba(168, 85, 247, 0.25)",
+                      border: "1px solid #a855f7",
+                      color: "#d8b4fe",
+                      padding: "3px 8px",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      cursor: "pointer"
+                    }}
+                    title="클릭하여 비디오 생성 모델 변경"
+                  >
+                    🎬 모델: {currentVideoModel.name} ▾
+                  </button>
+                </div>
+                <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: "#94a3b8" }}>
+                  각 씬의 [앞 씬 매칭] 설정에 따라 원테이크 보간 비디오를 생성하고, 1.2배속 음성+자막과 함께 최종 쇼츠로 자동 합성합니다.
+                </p>
+              </div>
+
+              {onGenerateSceneVideo && videoScenes.length > 0 && (() => {
+                const unlockedScenes = videoScenes.filter((sc) => !sc.is_locked);
+                const missingVideoCount = unlockedScenes.filter((sc) => !sc.generated_video_url).length;
+                const hasExistingVideo = unlockedScenes.some((sc) => Boolean(sc.generated_video_url));
+
+                return (
+                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                    {hasExistingVideo && missingVideoCount > 0 && (
+                      <button
+                        className="primary-button"
+                        disabled={isBusy || Object.keys(busyVideoScenes).length > 0 || Object.keys(busyImageScenes).length > 0}
+                        onClick={() => handleAllVideosAndRender(true)}
+                        type="button"
+                        style={{
+                          padding: "10px 18px",
+                          background: "linear-gradient(135deg, #059669 0%, #10b981 100%)",
+                          border: "none",
+                          boxShadow: "0 4px 14px rgba(16, 185, 129, 0.4)",
+                          fontWeight: "bold",
+                          color: "#ffffff",
+                          fontSize: "13.5px",
+                          cursor: "pointer"
+                        }}
+                        title="이미 생성된 영상은 보존하고, 아직 영상이 없는 미완료 씬만 선별하여 생성한 뒤 최종 렌더링합니다"
+                      >
+                        {busyAction === "missing_videos" ? (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                            <span className="spinner-icon">⏳</span> {batchProgressText || "미완료 씬 비디오 생성 중..."}
+                          </span>
+                        ) : (
+                          `⚡ 미완료 씬만 AI 영상 생성 & 렌더링 (${missingVideoCount}개 남음)`
+                        )}
+                      </button>
+                    )}
+
+                    <button
+                      className="primary-button"
+                      disabled={isBusy || Object.keys(busyVideoScenes).length > 0 || Object.keys(busyImageScenes).length > 0}
+                      onClick={() => handleAllVideosAndRender(false)}
+                      type="button"
+                      aria-label="Generate all scene videos and render final shorts"
+                      style={{
+                        padding: "10px 18px",
+                        background: hasExistingVideo
+                          ? "rgba(255, 255, 255, 0.08)"
+                          : "linear-gradient(90deg, #7c3aed 0%, #db2777 100%)",
+                        border: hasExistingVideo ? "1px solid rgba(255, 255, 255, 0.2)" : "none",
+                        boxShadow: hasExistingVideo ? "none" : "0 4px 14px rgba(124, 58, 237, 0.4)",
+                        fontWeight: "bold",
+                        color: "#ffffff",
+                        fontSize: "13.5px",
+                        cursor: "pointer"
+                      }}
+                      title="각 씬의 설정을 바탕으로 비디오를 생성한 뒤 Remotion 최종 쇼츠로 자동 합성합니다"
+                    >
+                      {busyAction === "all_videos" ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                          <span className="spinner-icon">⏳</span> {batchProgressText || "비디오 일괄 생성 및 렌더링 중..."}
+                        </span>
+                      ) : Object.keys(busyVideoScenes).length > 0 ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                          <span className="spinner-icon">⏳</span> 개별 씬 영상 생성 중 ({Object.keys(busyVideoScenes).length}개)...
+                        </span>
+                      ) : isBusy ? (
+                        "처리 중..."
+                      ) : hasExistingVideo ? (
+                        `🔄 전체 씬 비디오 다시 생성 & 렌더링 (${currentVideoModel.name})`
+                      ) : allMatchPrevOn ? (
+                        `🎬 전체 씬 AI 영상 순차 생성 & 렌더링 [원테이크 2장 연결] (${currentVideoModel.name})`
+                      ) : isCurrentFlowVideo ? (
+                        `⚡ 전체 씬 AI 영상 3개 병렬 생성 & 렌더링 [Google Flow 고속 모드] (${currentVideoModel.name})`
+                      ) : (
+                        `🎬 전체 씬 AI 영상 순차 생성 & 렌더링 [안전 순차 모드] (${currentVideoModel.name})`
+                      )}
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* 쇼츠 상단 고정 타이틀 박스 */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "6px 12px",
+                background: "rgba(124, 58, 237, 0.12)",
+                border: "1px dashed rgba(168, 85, 247, 0.45)",
+                borderRadius: "8px",
+                fontSize: "12px",
+                color: "#e2e8f0"
+              }}
+            >
+              <span style={{ color: "#c084fc", fontWeight: "bold" }}>🏷️ 쇼츠 상단 고정 타이틀:</span>
+              {videoTitle.trim() ? (
+                <span style={{ color: "#38bdf8", fontWeight: "bold", whiteSpace: "pre-line" }}>
+                  "{videoTitle.replace(/\n/g, " / ")}"
                 </span>
               ) : (
-                <span className="state-pill state-pill--waiting">미생성</span>
+                <span style={{ color: "#94a3b8", fontStyle: "italic" }}>
+                  (대본 초안 피드백 밑에서 입력한 제목이 여기에 자동 반영됩니다 / 비워둘 경우 제목 생략)
+                </span>
               )}
             </div>
-            {audioUrl ? (
-              <audio controls src={audioUrl} style={{ width: "100%", marginTop: "0.25rem" }} />
-            ) : (
-              <p className="muted" style={{ margin: "0.25rem 0" }}>
-                [🎙️ 1.2배속 음성 생성] 버튼을 누르면 Qwen3-TTS를 통해 성우 나레이션이 생성됩니다.
-              </p>
+
+            {/* 렌더 에러 알림 */}
+            {renderError && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "8px",
+                  padding: "8px 12px",
+                  background: "rgba(239, 68, 68, 0.15)",
+                  border: "1px solid #ef4444",
+                  borderRadius: "8px",
+                  fontSize: "13px",
+                  color: "#fca5a5",
+                  fontWeight: 600,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span>🚨</span>
+                  <span>{renderError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRenderError(null)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#fca5a5",
+                    fontSize: "14px",
+                    cursor: "pointer",
+                    padding: "0 4px",
+                  }}
+                  title="알림 닫기"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {/* 🚀 씬별 비디오 설정 퀵 컨트롤 매트릭스 (4단계 안으로 통합) */}
+            {videoScenes.length > 0 && (
+              <div
+                style={{
+                  background: "rgba(15, 23, 42, 0.6)",
+                  border: "1px solid rgba(255, 255, 255, 0.08)",
+                  borderRadius: "10px",
+                  padding: "0.85rem",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.75rem"
+                }}
+              >
+                {/* 퀵 컨트롤 헤더 & 토글 버튼 */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.6rem", borderBottom: "1px solid rgba(255, 255, 255, 0.08)", paddingBottom: "0.6rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ fontSize: "16px" }}>🎛️</span>
+                    <strong style={{ color: "#38bdf8", fontSize: "13px" }}>
+                      씬별 비디오 생성 퀵 설정 (총 {videoScenes.length}개 씬)
+                    </strong>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={toggleAllMatchPrev}
+                      disabled={isBusy || Boolean(isCurrentFlowVideo)}
+                      style={{
+                        fontSize: "11.5px",
+                        padding: "4px 9px",
+                        borderRadius: "5px",
+                        cursor: (isBusy || isCurrentFlowVideo) ? "not-allowed" : "pointer",
+                        background: isCurrentFlowVideo
+                          ? "rgba(255, 255, 255, 0.02)"
+                          : allMatchPrevOn
+                          ? "rgba(56, 189, 248, 0.25)"
+                          : "rgba(255, 255, 255, 0.05)",
+                        border: isCurrentFlowVideo
+                          ? "1px dashed rgba(255, 255, 255, 0.15)"
+                          : allMatchPrevOn
+                          ? "1.5px solid #38bdf8"
+                          : "1px solid rgba(255, 255, 255, 0.2)",
+                        color: isCurrentFlowVideo ? "#64748b" : (allMatchPrevOn ? "#38bdf8" : "#94a3b8"),
+                        fontWeight: "bold",
+                        opacity: isCurrentFlowVideo ? 0.65 : 1,
+                        transition: "all 0.15s ease"
+                      }}
+                      title={
+                        isCurrentFlowVideo
+                          ? "Google Flow CLI 모델은 단일 이미지 모션 전용으로 원테이크(앞 씬 매칭)를 지원하지 않습니다."
+                          : "Scene 2 이상 모든 씬의 앞 씬 매칭을 한 번에 켜거나 끕니다"
+                      }
+                    >
+                      {isCurrentFlowVideo
+                        ? "🚫 전체 매칭: Flow 미지원"
+                        : `⚡ 전체 매칭: ${allMatchPrevOn ? "전체 ON (2장 연결)" : "전체/일부 OFF"}`}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={toggleAllMultiShots}
+                      disabled={isBusy}
+                      style={{
+                        fontSize: "11.5px",
+                        padding: "4px 9px",
+                        borderRadius: "5px",
+                        cursor: isBusy ? "not-allowed" : "pointer",
+                        background: allMultiShotsOn ? "rgba(244, 63, 94, 0.25)" : "rgba(255, 255, 255, 0.05)",
+                        border: allMultiShotsOn ? "1.5px solid #f43f5e" : "1px solid rgba(255, 255, 255, 0.2)",
+                        color: allMultiShotsOn ? "#fb7185" : "#94a3b8",
+                        fontWeight: "bold",
+                        transition: "all 0.15s ease"
+                      }}
+                      title="모든 씬의 멀티샷을 한 번에 켜거나 끕니다"
+                    >
+                      ⚡ 전체 멀티샷: {allMultiShotsOn ? "전체 ON" : "전체 OFF"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 씬 그리드 칩 목록 */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                    gap: "0.5rem"
+                  }}
+                >
+                  {videoScenes.map((sc) => {
+                    const scId = sc.scene_id;
+                    const isMatched = isCurrentFlowVideo ? false : (scId > 1 ? (matchPrevMap[scId] !== false) : false);
+                    const isMulti = multiShotsMap[scId] ?? false;
+
+                    return (
+                      <div
+                        key={scId}
+                        style={{
+                          background: "rgba(255, 255, 255, 0.04)",
+                          border: "1px solid rgba(255, 255, 255, 0.09)",
+                          borderRadius: "6px",
+                          padding: "0.4rem 0.65rem",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "6px"
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0 }}>
+                          <span style={{ fontSize: "11px", fontWeight: "bold", color: "#38bdf8", whiteSpace: "nowrap" }}>
+                            #{scId}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: "11px",
+                              color: "#cbd5e1",
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              maxWidth: "110px"
+                            }}
+                            title={sc.narration}
+                          >
+                            {sc.narration}
+                          </span>
+                        </div>
+
+                        <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                          {scId > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isCurrentFlowVideo) return;
+                                setMatchPrevMap((prev) => ({ ...prev, [scId]: !isMatched }));
+                              }}
+                              disabled={isBusy || Boolean(isCurrentFlowVideo)}
+                              style={{
+                                fontSize: "10.5px",
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                                cursor: (isBusy || isCurrentFlowVideo) ? "not-allowed" : "pointer",
+                                background: isCurrentFlowVideo
+                                  ? "rgba(255, 255, 255, 0.02)"
+                                  : isMatched
+                                  ? "rgba(56, 189, 248, 0.2)"
+                                  : "rgba(255, 255, 255, 0.05)",
+                                border: isCurrentFlowVideo
+                                  ? "1px dashed rgba(255, 255, 255, 0.15)"
+                                  : isMatched
+                                  ? "1px solid #38bdf8"
+                                  : "1px dashed rgba(255, 255, 255, 0.25)",
+                                color: isCurrentFlowVideo ? "#64748b" : (isMatched ? "#38bdf8" : "#94a3b8"),
+                                fontWeight: isMatched ? "bold" : "normal",
+                                opacity: isCurrentFlowVideo ? 0.5 : 1,
+                                transition: "all 0.15s ease"
+                              }}
+                              title={
+                                isCurrentFlowVideo
+                                  ? "Google Flow CLI 모델은 단일 이미지 모션 전용으로 앞 씬 매칭(원테이크)을 지원하지 않습니다."
+                                  : `Scene ${scId} 앞 씬 매칭 (클릭하여 토글)`
+                              }
+                            >
+                              {isCurrentFlowVideo ? "🚫 Flow" : isMatched ? "🔗 앞씬매칭 ON" : "🔗 OFF"}
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => setMultiShotsMap((prev) => ({ ...prev, [scId]: !isMulti }))}
+                            disabled={isBusy}
+                            style={{
+                              fontSize: "10.5px",
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              cursor: isBusy ? "not-allowed" : "pointer",
+                              background: isMulti ? "rgba(244, 63, 94, 0.2)" : "rgba(255, 255, 255, 0.05)",
+                              border: isMulti ? "1px solid #f43f5e" : "1px dashed rgba(255, 255, 255, 0.25)",
+                              color: isMulti ? "#fb7185" : "#94a3b8",
+                              fontWeight: isMulti ? "bold" : "normal",
+                              transition: "all 0.15s ease"
+                            }}
+                            title={`Scene ${scId} 멀티샷 (클릭하여 토글)`}
+                          >
+                            {isMulti ? "🎥 멀티샷 ON" : "🎥 OFF"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </div>
 
@@ -1336,6 +1735,8 @@ export function ProductionPanel({
               </div>
             </div>
           )}
+
+
 
           {/* 6개 비디오 씬 & 연속성 검사기 영역 */}
           <div className="video-scenes-box">
@@ -1937,15 +2338,53 @@ export function ProductionPanel({
                             fontFamily: "monospace"
                           }}
                         >
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ color: "#38bdf8", fontWeight: "bold", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                              {isMatched ? "🏁 클라이맥스(종료) 이미지 프롬프트" : "🖼️ 시작 이미지 프롬프트"} ({currentImageModel.name}):
-                              {isMatched && (
-                                <span style={{ fontSize: "10px", background: "rgba(56, 189, 248, 0.2)", color: "#38bdf8", padding: "1px 6px", borderRadius: "3px", fontWeight: "normal" }}>
-                                  도착점 앵커(End Frame) 매칭 ON
-                                </span>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "6px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                              <span style={{ color: "#38bdf8", fontWeight: "bold", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                                {isMatched ? "🏁 클라이맥스(종료) 이미지 프롬프트" : "🖼️ 시작 이미지 프롬프트"} ({currentImageModel.name}):
+                                {isMatched && (
+                                  <span style={{ fontSize: "10px", background: "rgba(56, 189, 248, 0.2)", color: "#38bdf8", padding: "1px 6px", borderRadius: "3px", fontWeight: "normal" }}>
+                                    도착점 앵커(End Frame) 매칭 ON
+                                  </span>
+                                )}
+                              </span>
+
+                              {/* 🎯 에셋 시트 선별 참조 주입 배지 */}
+                              {productionState?.asset_sheet?.has_sheet && useAssetSheet && (
+                                <div style={{ display: "inline-flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
+                                  {(scene.active_references && scene.active_references.length > 0) ? (
+                                    scene.active_references.map((refKey) => {
+                                      if (refKey === "character") {
+                                        return (
+                                          <span key="char" style={{ fontSize: "10px", background: "rgba(59, 130, 246, 0.25)", color: "#93c5fd", border: "1px solid rgba(59, 130, 246, 0.4)", padding: "1px 6px", borderRadius: "4px", fontWeight: "bold" }}>
+                                            🔗 🧍 {productionState?.asset_sheet?.character_name || "캐릭터"}
+                                          </span>
+                                        );
+                                      }
+                                      if (refKey === "prop_1") {
+                                        return (
+                                          <span key="p1" style={{ fontSize: "10px", background: "rgba(16, 185, 129, 0.25)", color: "#6ee7b7", border: "1px solid rgba(16, 185, 129, 0.4)", padding: "1px 6px", borderRadius: "4px", fontWeight: "bold" }}>
+                                            🔗 🧪 {productionState?.asset_sheet?.prop_1_name || "소품1"}
+                                          </span>
+                                        );
+                                      }
+                                      if (refKey === "prop_2") {
+                                        return (
+                                          <span key="p2" style={{ fontSize: "10px", background: "rgba(245, 158, 11, 0.25)", color: "#fcd34d", border: "1px solid rgba(245, 158, 11, 0.4)", padding: "1px 6px", borderRadius: "4px", fontWeight: "bold" }}>
+                                            🔗 📦 {productionState?.asset_sheet?.prop_2_name || "소품2"}
+                                          </span>
+                                        );
+                                      }
+                                      return null;
+                                    })
+                                  ) : (
+                                    <span style={{ fontSize: "10px", background: "rgba(148, 163, 184, 0.15)", color: "#94a3b8", padding: "1px 6px", borderRadius: "4px" }}>
+                                      사물/배경 단독 (캐릭터 미주입)
+                                    </span>
+                                  )}
+                                </div>
                               )}
-                            </span>
+                            </div>
                             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                               <button
                                 type="button"

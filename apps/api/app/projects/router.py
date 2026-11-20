@@ -7,7 +7,13 @@ from typing import Callable
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.projects.service import create_project, list_projects, read_project, update_project_title
+from app.projects.service import (
+    create_project,
+    delete_project,
+    list_projects,
+    read_project,
+    update_project_title,
+)
 
 
 MAX_PROJECT_ID_ATTEMPTS = 1440
@@ -78,5 +84,13 @@ def create_projects_router(outputs_dir_provider: Callable[[], Path]) -> APIRoute
         except (FileNotFoundError, ValueError) as exc:
             _raise_project_error(exc)
         return _project_response(project)
+
+    @router.delete("/{project_id}")
+    def delete_project_endpoint(project_id: str, outputs: Path = Depends(outputs_dir)):
+        try:
+            delete_project(outputs, project_id)
+        except (FileNotFoundError, ValueError) as exc:
+            _raise_project_error(exc)
+        return {"ok": True, "project_id": project_id}
 
     return router

@@ -4,6 +4,7 @@ import {
   addDirectReference,
   alignSubtitlesAndScenes,
   createProject,
+  deleteProject,
   deleteThumbnail,
   extractReferenceAudio,
   fetchProductionState,
@@ -13,6 +14,7 @@ import {
   fetchSettingsStatus,
   finalizeScript,
   generateAllSceneImages,
+  generateAssetSheet,
   generateConcepts,
   generateSceneImage,
   generateSceneVideo,
@@ -128,6 +130,10 @@ export default function App() {
       return;
     }
 
+    setReferenceState(null);
+    setScriptsState(null);
+    setProductionState(null);
+
     let isActive = true;
     Promise.all([
       fetchReferenceState(selectedProject.project_id),
@@ -174,6 +180,37 @@ export default function App() {
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "프로젝트를 만들지 못했습니다.");
+    }
+  }
+
+  async function handleDeleteProject(projectId: string) {
+    const targetProject = projects.find((p) => p.project_id === projectId);
+    const targetName = targetProject ? targetProject.display_name : projectId;
+    const confirmed = window.confirm(
+      `'${targetName}' 프로젝트를 정말 삭제하시겠습니까?\n생성된 모든 영상, 이미지, 음성, 대본 파일이 영구 삭제됩니다.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await deleteProject(projectId);
+      const remainingProjects = projects.filter((p) => p.project_id !== projectId);
+      setProjects(remainingProjects);
+
+      if (selectedProject?.project_id === projectId) {
+        if (remainingProjects.length > 0) {
+          setSelectedProject(remainingProjects[0]);
+        } else {
+          setSelectedProject(null);
+          setReferenceState(null);
+          setScriptsState(null);
+          setProductionState(null);
+        }
+      }
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "프로젝트 삭제에 실패했습니다.");
     }
   }
 
@@ -470,13 +507,13 @@ export default function App() {
     }
   }
 
-  async function handleGenerateSceneImage(sceneId: number, model?: string) {
+  async function handleGenerateSceneImage(sceneId: number, model?: string, useAssetSheet?: boolean) {
     if (!selectedProject) {
       return;
     }
     // 전역 isProductionBusy를 켜지 않아 다른 씬들의 시작 이미지 생성을 동시 클릭 가능하도록 지원
     try {
-      const updated = await generateSceneImage(selectedProject.project_id, sceneId, model);
+      const updated = await generateSceneImage(selectedProject.project_id, sceneId, model, useAssetSheet);
       setProductionState((prev) => {
         if (!prev || !prev.video_scenes || !updated.video_scenes) return updated;
         const prevScenes = prev.video_scenes;
@@ -503,17 +540,33 @@ export default function App() {
     }
   }
 
-  async function handleGenerateAllSceneImages(model: string = "nano_banana_pro") {
+  async function handleGenerateAllSceneImages(model: string = "nano_banana_pro", useAssetSheet?: boolean, onlyMissing: boolean = false) {
     if (!selectedProject) {
       return;
     }
     setIsProductionBusy(true);
     try {
-      const updated = await generateAllSceneImages(selectedProject.project_id, model);
+      const updated = await generateAllSceneImages(selectedProject.project_id, model, useAssetSheet, onlyMissing);
       setProductionState(updated);
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "전체 씬 이미지 생성 실패");
+      setError(reason instanceof Error ? reason.message : (onlyMissing ? "미완료 씬 이미지 생성 실패" : "전체 씬 이미지 생성 실패"));
+    } finally {
+      setIsProductionBusy(false);
+    }
+  }
+
+  async function handleGenerateAssetSheet(model?: string) {
+    if (!selectedProject) {
+      return;
+    }
+    setIsProductionBusy(true);
+    try {
+      const manifest = await generateAssetSheet(selectedProject.project_id, model);
+      setProductionState((prev) => prev ? { ...prev, asset_sheet: manifest } : null);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "에셋 시트 생성 실패");
     } finally {
       setIsProductionBusy(false);
     }
@@ -751,16 +804,32 @@ export default function App() {
     <main className="app-shell">
       <aside className="sidebar" aria-label="Project dashboard">
         <div className="brand-block">
-          <span className="brand-mark" aria-hidden="true" />
-          <span>
-            <strong>Shorts Auto</strong>
-            <small>Phase 1</small>
-          </span>
+          <img
+            src="/namdareun-logo.jpg"
+            alt="남다른AI 로고"
+            style={{
+              width: "36px",
+              height: "36px",
+              borderRadius: "8px",
+              objectFit: "cover",
+              boxShadow: "0 2px 8px rgba(0, 0, 0, 0.08)",
+              flexShrink: 0
+            }}
+          />
+          <div>
+            <strong style={{ fontSize: "1.15rem", color: "#0f172a", letterSpacing: "-0.02em", display: "block", lineHeight: "1.2" }}>
+              Shorts Auto
+            </strong>
+            <small style={{ color: "#0284c7", fontWeight: 700, fontSize: "0.82rem", marginTop: "3px", display: "block" }}>
+              남다른 AI
+            </small>
+          </div>
         </div>
 
         <ProjectDashboard
           onCreateProject={handleCreateProject}
           onSelectProject={setSelectedProject}
+          onDeleteProject={handleDeleteProject}
           projects={projects}
           selectedProjectId={selectedProject?.project_id ?? null}
         />
@@ -771,17 +840,27 @@ export default function App() {
         {error ? <p className="status-banner status-banner--warning">API 연결 전: {error}</p> : null}
 
         {selectedProject ? (
-          <article className="dashboard">
+          <article className="dashboard" key={selectedProject.project_id}>
             <header className="project-hero">
               <div>
                 <p className="eyebrow">Current project</p>
                 <h1>{selectedProject.display_name}</h1>
-                <p className="muted">{selectedProject.project_title}</p>
               </div>
               <div className="hero-side">
-                <button className="secondary-button" onClick={handleEditTitle} type="button">
-                  Edit title
-                </button>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button className="secondary-button" onClick={handleEditTitle} type="button">
+                    Edit title
+                  </button>
+                  <button
+                    className="secondary-button"
+                    style={{ borderColor: "#fca5a5", color: "#dc2626", background: "#fff5f5" }}
+                    onClick={() => handleDeleteProject(selectedProject.project_id)}
+                    type="button"
+                    title="프로젝트 영구 삭제"
+                  >
+                    🗑️ Delete project
+                  </button>
+                </div>
                 <dl className="hero-meta" aria-label="Project metadata">
                   <div>
                     <dt>Project ID</dt>
@@ -844,11 +923,13 @@ export default function App() {
                 onUpdateFinalScript={handleUpdateFinalScript}
                 selectedCandidate={scriptsState?.selected_candidate ?? null}
                 ttsValidation={scriptsState?.tts_validation ?? null}
+                loopValidation={scriptsState?.loop_validation ?? null}
               />
               <ProductionPanel
                 hasFinalScript={Boolean(scriptsState?.final_script || selectedProject.generated_files?.final_script)}
                 isBusy={isProductionBusy}
                 onGenerateAllSceneImages={handleGenerateAllSceneImages}
+                onGenerateAssetSheet={handleGenerateAssetSheet}
                 onGenerateConcepts={handleGenerateConcepts}
                 onGenerateProduction={handleGenerateProduction}
                 onGenerateSceneImage={handleGenerateSceneImage}
@@ -869,7 +950,6 @@ export default function App() {
                 onSetThumbnailFromScene={handleSetThumbnailFromScene}
                 onDeleteThumbnail={handleDeleteThumbnail}
               />
-              <SettingsPanel settings={settings} />
 
               <section className="panel" aria-labelledby="jobs-title">
                 <div className="section-header">

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+import logging
 import re
 from typing import TypeVar
 from urllib.parse import parse_qs, urlparse
@@ -18,6 +19,8 @@ DURATION_RE = re.compile(
 YOUTUBE_BATCH_SIZE = 50
 SEARCH_WINDOW_DAYS = 7
 T = TypeVar("T")
+
+logger = logging.getLogger(__name__)
 
 
 def extract_youtube_video_id(url: str) -> str:
@@ -191,6 +194,17 @@ class YouTubeClient:
             if channel_id:
                 base_params["channelId"] = channel_id
 
+            # 4분 미만의 쇼츠/숏폼 검색 최적화:
+            # duration_filter가 under_60, under_120, under_180인 경우 YouTube API에 videoDuration='short'를 넘겨
+            # 롱폼 영상들로 도배되어 모두 필터링 탈락(0건 반환)되는 문제를 방지한다.
+            if request.duration_filter in ("under_60", "under_120", "under_180"):
+                base_params["videoDuration"] = "short"
+
+            logger.info(
+                f"[YouTube Search] keyword='{request.keyword}', channel_id='{channel_id}', "
+                f"duration_filter='{request.duration_filter}', videoDuration='{base_params.get('videoDuration')}'"
+            )
+
             video_ids: list[str] = []
             seen_video_ids: set[str] = set()
             for published_after, published_before in date_windows(request):
@@ -212,7 +226,33 @@ class YouTubeClient:
                         seen_video_ids.add(video_id)
                         video_ids.append(video_id)
 
-            return self._hydrate(video_ids, "search", request)[: request.max_results]
+            # fallback: videoDuration="short" 검색 시 결과가 0개면 videoDuration 없이 1회 재검색
+            if not video_ids and "videoDuration" in base_params:
+                fallback_params = dict(base_params)
+                fallback_params.pop("videoDuration", None)
+                for published_after, published_before in date_windows(request):
+                    params = dict(fallback_params)
+                    if published_after:
+                        params["publishedAfter"] = f"{published_after}T00:00:00Z"
+                    if published_before:
+                        params["publishedBefore"] = f"{published_before}T23:59:59Z"
+                    try:
+                        resp = self.http_client.get(
+                            "https://www.googleapis.com/youtube/v3/search",
+                            params=params,
+                        )
+                        if resp.status_code == 200:
+                            for item in resp.json().get("items", []):
+                                v_id = item.get("id", {}).get("videoId")
+                                if v_id and v_id not in seen_video_ids:
+                                    seen_video_ids.add(v_id)
+                                    video_ids.append(v_id)
+                    except Exception:
+                        pass
+
+            hydrated = self._hydrate(video_ids, "search", request)[: request.max_results]
+            logger.info(f"[YouTube Search] Got {len(video_ids)} raw videos, {len(hydrated)} passed filter")
+            return hydrated
 
         # 2. 키워드 없이 채널명만 있는 경우 (채널 uploads 재생목록에서 최신 영상들 긁어오기)
         if uploads_id:

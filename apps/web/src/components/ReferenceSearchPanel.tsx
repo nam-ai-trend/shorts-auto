@@ -250,7 +250,7 @@ export function ReferenceSearchPanel({
           disabled={isBusy || (keyword.trim().length === 0 && channelQuery.trim().length === 0)}
           type="submit"
         >
-          Search references
+          {isBusy ? "🔍 YouTube 검색 중..." : "Search references"}
         </button>
       </form>
 
@@ -393,7 +393,15 @@ export function ReferenceSearchPanel({
               ))
             ) : (
               <tr>
-                <td colSpan={5}>Search results will appear here.</td>
+                <td colSpan={5} style={{ padding: "32px 16px", textAlign: "center", color: "#64748b" }}>
+                  <div style={{ fontSize: "14px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
+                    표시할 레퍼런스 영상이 없습니다.
+                  </div>
+                  <div style={{ fontSize: "12px", lineHeight: "1.5" }}>
+                    • 키워드를 입력하고 <strong>Search references</strong> 버튼을 눌러주세요.<br />
+                    • 원하는 결과가 나오지 않을 때는 <strong>Video length 필터를 'ALL'</strong>로 변경하거나 키워드를 조정해보세요.
+                  </div>
+                </td>
               </tr>
             )}
           </tbody>

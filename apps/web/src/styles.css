@@ -149,6 +149,40 @@ button {
   background: #eefafc;
 }
 
+.project-list-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+}
+
+.project-list-row .project-list-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.project-delete-btn {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #94a3b8;
+  padding: 0 10px;
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease-in-out;
+  flex-shrink: 0;
+}
+
+.project-delete-btn:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #dc2626;
+  transform: scale(1.05);
+}
+
 .project-list-item {
   width: 100%;
   border: 1px solid #dce7ee;
@@ -532,7 +566,8 @@ dd {
 }
 
 .candidate-panel,
-.final-script-panel {
+.final-script-panel,
+.production-panel {
   grid-column: 1 / -1;
 }
 

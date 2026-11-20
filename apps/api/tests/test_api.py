@@ -38,6 +38,24 @@ def test_update_project_title(tmp_path: Path):
     assert response.json()["project"]["project_title"] == "변경"
 
 
+def test_delete_project_endpoint(tmp_path: Path):
+    client = TestClient(create_app(repo_root=tmp_path))
+    project_id = client.post("/api/projects", json={"project_title": "삭제테스트"}).json()["project"][
+        "project_id"
+    ]
+
+    delete_res = client.delete(f"/api/projects/{project_id}")
+    assert delete_res.status_code == 200
+    assert delete_res.json() == {"ok": True, "project_id": project_id}
+
+    get_res = client.get(f"/api/projects/{project_id}")
+    assert get_res.status_code == 404
+
+    delete_again = client.delete(f"/api/projects/{project_id}")
+    assert delete_again.status_code == 404
+
+
+
 def test_create_multiple_projects_avoids_timestamp_collision(tmp_path: Path):
     client = TestClient(create_app(repo_root=tmp_path))
 

@@ -203,6 +203,72 @@ def _get_video_duration(video_path: Path) -> float:
         return 6.0
 
 
+def resolve_project_shorts_title(project_dir: Path, explicit_title: str | None = None) -> str | None:
+    """
+    쇼츠 영상 및 썸네일에 들어갈 메인 타이틀을 다단계 Fallback으로 똑똑하게 추출합니다.
+    사용자가 제목 입력을 깜빡했더라도 초안 후보나 대본에서 핵심 후킹 제목을 자동 복원합니다.
+    """
+    # 1. 인자로 명시적 제목이 전달된 경우
+    if explicit_title and explicit_title.strip() and explicit_title.strip() != "untitled":
+        return explicit_title.strip()
+
+    # 2. project.json 확인
+    pj_path = project_dir / "project.json"
+    if pj_path.exists():
+        try:
+            pj_data = json.loads(pj_path.read_text(encoding="utf-8"))
+            p_title = pj_data.get("project_title")
+            if p_title and p_title.strip() and p_title.strip() != "untitled":
+                return p_title.strip()
+        except Exception:
+            pass
+
+    # 3. selected_script_candidate.json 확인 (선택된 초안의 제목 또는 옵션)
+    sel_cand_path = project_dir / "selected_script_candidate.json"
+    if sel_cand_path.exists():
+        try:
+            sel_data = json.loads(sel_cand_path.read_text(encoding="utf-8"))
+            title_cand = sel_data.get("title") or sel_data.get("hook_title")
+            if title_cand and str(title_cand).strip() and str(title_cand).strip() != "untitled":
+                return str(title_cand).strip()
+            options = sel_data.get("title_options") or []
+            if options and str(options[0]).strip():
+                return str(options[0]).strip()
+        except Exception:
+            pass
+
+    # 4. candidates.json 확인 (후보군 중 1순위 제목)
+    cands_path = project_dir / "candidates.json"
+    if cands_path.exists():
+        try:
+            cands_data = json.loads(cands_path.read_text(encoding="utf-8"))
+            if isinstance(cands_data, list) and cands_data:
+                first_cand = cands_data[0]
+                title_cand = first_cand.get("title") or first_cand.get("hook_title")
+                if title_cand and str(title_cand).strip() and str(title_cand).strip() != "untitled":
+                    return str(title_cand).strip()
+                options = first_cand.get("title_options") or []
+                if options and str(options[0]).strip():
+                    return str(options[0]).strip()
+        except Exception:
+            pass
+
+    # 5. display_script.md 또는 final_script.md 첫 문장 후킹 확인
+    for script_name in ("display_script.md", "final_script.md"):
+        script_file = project_dir / script_name
+        if script_file.exists():
+            try:
+                first_line = script_file.read_text(encoding="utf-8").strip().splitlines()[0].strip()
+                if first_line and len(first_line) > 5:
+                    hook_phrase = first_line.split(",")[0].split(".")[0].strip()
+                    if hook_phrase:
+                        return hook_phrase
+            except Exception:
+                pass
+
+    return None
+
+
 def render_thumbnail_image(
     project_dir: Path,
     title: str | None = None,
@@ -240,17 +306,7 @@ def render_thumbnail_image(
     if bg_img.resolve() != bg_tmp.resolve():
         shutil.copy2(bg_img, bg_tmp)
 
-    final_title = title.strip() if title and title.strip() else None
-    if not final_title:
-        try:
-            pj_path = project_dir / "project.json"
-            if pj_path.exists():
-                pj_data = json.loads(pj_path.read_text(encoding="utf-8"))
-                p_title = pj_data.get("project_title")
-                if p_title and p_title.strip() and p_title.strip() != "untitled":
-                    final_title = p_title.strip()
-        except Exception:
-            pass
+    final_title = resolve_project_shorts_title(project_dir, title)
 
     rel_image = bg_tmp.resolve().relative_to(repo_root.resolve()).as_posix()
     props = {
@@ -476,18 +532,8 @@ def render_final_shorts(
     rel_audio = tts_audio_path.resolve().relative_to(repo_root.resolve()).as_posix()
     rel_bgm = bgm_path.resolve().relative_to(repo_root.resolve()).as_posix() if has_bgm else None
 
-    # 0~2초 오프닝 타이틀 설정 (인자로 없으면 project.json에서 확인)
-    final_title = title.strip() if title and title.strip() else None
-    if not final_title:
-        try:
-            pj_path = project_dir / "project.json"
-            if pj_path.exists():
-                pj_data = json.loads(pj_path.read_text(encoding="utf-8"))
-                p_title = pj_data.get("project_title")
-                if p_title and p_title.strip() and p_title.strip() != "untitled":
-                    final_title = p_title.strip()
-        except Exception:
-            pass
+    # 영상 상단 상시 노출 및 썸네일 타이틀 설정 (다단계 Fallback으로 자동 복원)
+    final_title = resolve_project_shorts_title(project_dir, title)
 
 
 

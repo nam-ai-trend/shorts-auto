@@ -147,3 +147,11 @@ def update_project_step(
     project.updated_at = utc_now_iso()
     save_project(outputs_dir, project)
     return project
+
+
+def delete_project(outputs_dir: Path, project_id: str) -> None:
+    import shutil
+    folder = _project_path(outputs_dir, project_id)
+    if not folder.is_dir():
+        raise FileNotFoundError(f"Project does not exist: {project_id}")
+    shutil.rmtree(folder)

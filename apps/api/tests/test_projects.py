@@ -5,6 +5,7 @@ import pytest
 
 from app.projects.service import (
     create_project,
+    delete_project,
     list_projects,
     read_project,
     save_project,
@@ -134,3 +135,20 @@ def test_update_project_step_rejects_missing_step_status(tmp_path: Path):
 
     restored = read_project(tmp_path, "261011_2130")
     assert restored.current_step == "Reference"
+
+
+def test_delete_project_removes_folder(tmp_path: Path):
+    create_project(tmp_path, project_title="삭제대상", now="261011_2130")
+    folder = tmp_path / "261011_2130"
+    assert folder.exists()
+
+    delete_project(tmp_path, "261011_2130")
+
+    assert not folder.exists()
+    assert list_projects(tmp_path) == []
+
+
+def test_delete_project_rejects_missing(tmp_path: Path):
+    with pytest.raises(FileNotFoundError):
+        delete_project(tmp_path, "261011_2130")
+

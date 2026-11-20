@@ -1,4 +1,5 @@
 import type {
+  AssetSheetManifest,
   CameraMovementItem,
   ConceptKit,
   ProductionState,
@@ -59,6 +60,12 @@ export function updateProject(projectId: string, payload: UpdateProjectPayload):
     method: "PATCH",
     body: JSON.stringify(payload)
   }).then((data) => data.project);
+}
+
+export function deleteProject(projectId: string): Promise<{ ok: boolean; project_id: string }> {
+  return request<{ ok: boolean; project_id: string }>(`/api/projects/${encodeURIComponent(projectId)}`, {
+    method: "DELETE"
+  });
 }
 
 export function fetchReferenceState(projectId: string): Promise<ReferenceState> {
@@ -220,23 +227,47 @@ export function generateConcepts(projectId: string, visualStyleId: string = "cla
   });
 }
 
+export function generateAssetSheet(
+  projectId: string,
+  model: string = "nano_banana_pro"
+): Promise<AssetSheetManifest> {
+  return request<AssetSheetManifest>(
+    `/api/projects/${encodeURIComponent(projectId)}/production/asset-sheet`,
+    {
+      method: "POST",
+      body: JSON.stringify({ model })
+    }
+  );
+}
+
+export function fetchAssetSheet(
+  projectId: string
+): Promise<{ asset_sheet: AssetSheetManifest | null }> {
+  return request<{ asset_sheet: AssetSheetManifest | null }>(
+    `/api/projects/${encodeURIComponent(projectId)}/production/asset-sheet`
+  );
+}
+
 export function generateSceneImage(
   projectId: string,
   sceneId: number,
-  model: string = "nano_banana_pro"
+  model: string = "nano_banana_pro",
+  useAssetSheet: boolean = false
 ): Promise<ProductionState> {
   return request<ProductionState>(
-    `/api/projects/${encodeURIComponent(projectId)}/production/scenes/${sceneId}/image?model=${encodeURIComponent(model)}`,
+    `/api/projects/${encodeURIComponent(projectId)}/production/scenes/${sceneId}/image?model=${encodeURIComponent(model)}&use_asset_sheet=${useAssetSheet}`,
     { method: "POST" }
   );
 }
 
 export function generateAllSceneImages(
   projectId: string,
-  model: string = "nano_banana_pro"
+  model: string = "nano_banana_pro",
+  useAssetSheet: boolean = false,
+  onlyMissing: boolean = false
 ): Promise<ProductionState> {
   return request<ProductionState>(
-    `/api/projects/${encodeURIComponent(projectId)}/production/scenes/images?model=${encodeURIComponent(model)}`,
+    `/api/projects/${encodeURIComponent(projectId)}/production/scenes/images?model=${encodeURIComponent(model)}&use_asset_sheet=${useAssetSheet}&only_missing=${onlyMissing}`,
     { method: "POST" }
   );
 }

@@ -4,6 +4,7 @@ export interface ModelOption {
   readonly id: string;
   readonly name: string;
   readonly provider: string;
+  readonly platform: "higgsfield" | "flow";
   readonly description: string;
   readonly badge?: string;
   readonly badgeType?: "new" | "free" | "popular" | "recommended" | "value";
@@ -12,10 +13,12 @@ export interface ModelOption {
 }
 
 export const IMAGE_MODELS: readonly ModelOption[] = [
+  // === 힉스필드 (Higgsfield) 이미지 모델 ===
   {
     id: "nano_banana_pro",
     name: "Nano Banana Pro",
     provider: "Higgsfield",
+    platform: "higgsfield",
     description: "3D 클레이메이션 및 인포그래픽 텍스처에 최적화된 고화질 세로형 모델",
     badge: "나노바나나 대표",
     badgeType: "popular",
@@ -26,6 +29,7 @@ export const IMAGE_MODELS: readonly ModelOption[] = [
     id: "gpt_image_2",
     name: "GPT Image 2",
     provider: "OpenAI / Higgsfield",
+    platform: "higgsfield",
     description: "복합 지시 프롬프트와 논리적 사물 배치, 텍스트 렌더링에 강한 모델",
     badge: "GPT 대표",
     badgeType: "recommended",
@@ -36,6 +40,7 @@ export const IMAGE_MODELS: readonly ModelOption[] = [
     id: "seedream_v5_pro",
     name: "Seedream 5.0 Pro",
     provider: "ByteDance / Seedance",
+    platform: "higgsfield",
     description: "바이트댄스 시댄스 생태계의 고품질 시네마틱 감성 이미지 모델",
     badge: "시댄스 대표",
     badgeType: "new",
@@ -46,6 +51,7 @@ export const IMAGE_MODELS: readonly ModelOption[] = [
     id: "flux_3_image",
     name: "FLUX 3 Image",
     provider: "Black Forest Labs",
+    platform: "higgsfield",
     description: "극사실적 질감 표현과 조명, 포토리얼리즘 디테일에 특화된 모델",
     badge: "플럭스 대표",
     badgeType: "popular",
@@ -56,14 +62,18 @@ export const IMAGE_MODELS: readonly ModelOption[] = [
     id: "dall-e-3",
     name: "OpenAI DALL-E 3",
     provider: "OpenAI Direct",
+    platform: "higgsfield",
     description: "OpenAI API 직접 연결을 통한 창의적 스타일 일러스트레이션",
     tags: ["클래식"],
     iconType: "gpt"
   },
+
+  // === Google Flow CLI 이미지 모델 ===
   {
     id: "flow_nano_pro",
     name: "Nano Banana Pro (Flow)",
     provider: "Google Flow",
+    platform: "flow",
     description: "Google Flow 공식 Nano Banana Pro. 3D 입체 질감과 사물 배치 최적화 모델",
     badge: "Flow 대표",
     badgeType: "recommended",
@@ -74,6 +84,7 @@ export const IMAGE_MODELS: readonly ModelOption[] = [
     id: "flow_imagen_4",
     name: "Imagen 4 / 3.5 (Flow)",
     provider: "Google Flow",
+    platform: "flow",
     description: "Google Flow 공식 최신 Imagen. 극사실주의 디테일과 감성적 라이팅 연출",
     badge: "Flow 신규",
     badgeType: "new",
@@ -84,6 +95,7 @@ export const IMAGE_MODELS: readonly ModelOption[] = [
     id: "flow_nano_2_1",
     name: "Nano Banana 2.1 (Flow)",
     provider: "Google Flow",
+    platform: "flow",
     description: "빠른 렌더링 속도와 균형 잡힌 비주얼을 제공하는 Google Flow 표준 모델",
     badge: "Flow 인기",
     badgeType: "popular",
@@ -94,6 +106,7 @@ export const IMAGE_MODELS: readonly ModelOption[] = [
     id: "flow_nano_2_lite",
     name: "Nano Banana 2 Lite (Flow)",
     provider: "Google Flow",
+    platform: "flow",
     description: "크레딧 소모가 적고 초고속으로 이미지를 뽑아내는 실속형 모델",
     badge: "Flow 가성비",
     badgeType: "value",
@@ -103,60 +116,34 @@ export const IMAGE_MODELS: readonly ModelOption[] = [
 ];
 
 export const VIDEO_MODELS: readonly ModelOption[] = [
+  // === 힉스필드 (Higgsfield) 비디오 모델 ===
   {
-    id: "flow_veo_fast",
-    name: "Google Veo 3.1 Fast (Flow)",
-    provider: "Google Flow",
-    description: "Google Flow 공식 Veo 3.1. 고속 물리 시뮬레이션 및 역동적인 카메라 모션 영상",
-    badge: "Flow 추천",
+    id: "wan3_0",
+    name: "Wan 3.0 Video",
+    provider: "Wan (Alibaba)",
+    platform: "higgsfield",
+    description: "Free 플랜 완벽 지원! 시작+종료 2장 프레임 보간 및 720p/1080p 고화질 원테이크 지원",
+    badge: "Free 플랜 추천",
     badgeType: "recommended",
-    tags: ["Google Flow", "Veo 3.1", "최대 8초"],
-    iconType: "google"
-  },
-  {
-    id: "flow_veo_quality",
-    name: "Google Veo 3.1 Quality (Flow)",
-    provider: "Google Flow",
-    description: "영화 같은 극적인 시네마틱 화질과 정교한 디테일 보존을 제공하는 프리미엄 Veo 모델",
-    badge: "Flow 시네마틱",
-    badgeType: "new",
-    tags: ["Google Flow", "Veo Quality", "8초"],
-    iconType: "google"
-  },
-  {
-    id: "flow_veo_lite",
-    name: "Google Veo 3.1 Lite (Flow)",
-    provider: "Google Flow",
-    description: "가장 저렴한 크레딧 소모로 부담 없이 빠르게 클립을 뽑아낼 수 있는 실속형 Veo 모델",
-    badge: "Flow 최고가성비",
-    badgeType: "value",
-    tags: ["Google Flow", "Veo Lite", "빠른 생성"],
-    iconType: "google"
-  },
-  {
-    id: "flow_omni_flash",
-    name: "Gemini Omni Flash (Flow)",
-    provider: "Google Flow",
-    description: "Google Flow 공식 Omni 모델. 고속 영상 생성 및 최대 10초까지 생성 가능한 롱 클립 모델",
-    badge: "Flow 롱클립",
-    badgeType: "recommended",
-    tags: ["Google Flow", "단일 샷", "최대 10초"],
-    iconType: "google"
+    tags: ["Free 플랜 지원", "시작+종료 2장 보간", "8.75 크레딧", "고화질"],
+    iconType: "wan"
   },
   {
     id: "kling_o3_flf",
     name: "Kling 3.0 Omni (Frames)",
     provider: "Kuaishou",
-    description: "시작 이미지와 종료 이미지(2개 프레임)를 완벽하게 연결하는 원테이크 연속성 특화 모델",
-    badge: "원테이크 추천",
-    badgeType: "recommended",
-    tags: ["시작+종료 2장 보간", "멀티샷 지원"],
+    platform: "higgsfield",
+    description: "시작+종료 이미지 2장 보간 (주의: 힉스필드 Basic 이상 유료 플랜 필요)",
+    badge: "Basic 플랜 전용",
+    badgeType: "popular",
+    tags: ["Basic 플랜 이상 필요", "시작+종료 2장 보간", "멀티샷 지원"],
     iconType: "kling"
   },
   {
     id: "minimax_h3",
     name: "Minimax H3",
     provider: "MiniMax",
+    platform: "higgsfield",
     description: "시작+종료 2장 프레임 보간과 10크레딧의 뛰어난 가성비를 갖춘 원테이크 모델",
     badge: "원테이크 + 최고가성비",
     badgeType: "recommended",
@@ -167,6 +154,7 @@ export const VIDEO_MODELS: readonly ModelOption[] = [
     id: "grok_video_v15_lite",
     name: "Grok Imagine 1.5 Lite",
     provider: "xAI",
+    platform: "higgsfield",
     description: "단 5크레딧으로 초고속 생성하는 압도적인 최고가성비 모션 영상",
     badge: "최고가성비",
     badgeType: "value",
@@ -177,6 +165,7 @@ export const VIDEO_MODELS: readonly ModelOption[] = [
     id: "veo3_1",
     name: "Google Veo 3.1",
     provider: "Google DeepMind",
+    platform: "higgsfield",
     description: "사운드 컨트롤이 가능한 정밀 영상과 물리 시뮬레이션 (시작 1장 지원)",
     badge: "인기",
     badgeType: "popular",
@@ -187,6 +176,7 @@ export const VIDEO_MODELS: readonly ModelOption[] = [
     id: "seedance_2_0",
     name: "Seedance 2.0",
     provider: "ByteDance",
+    platform: "higgsfield",
     description: "시네마틱 멀티샷 영상 제작 및 시작/종료 프레임 키프레임 보간",
     badge: "시댄스 대표",
     badgeType: "popular",
@@ -194,17 +184,10 @@ export const VIDEO_MODELS: readonly ModelOption[] = [
     iconType: "seedance"
   },
   {
-    id: "wan3_0",
-    name: "Wan 3.0",
-    provider: "Alibaba",
-    description: "사운드와 함께 카메라를 제어하는 영상, 더 자유로운 표현",
-    tags: ["오디오 동기화", "카메라 제어"],
-    iconType: "wan"
-  },
-  {
     id: "flux_3_video",
     name: "FLUX.3 Video",
     provider: "Black Forest Labs",
+    platform: "higgsfield",
     description: "동기화된 오디오와 함께 텍스트, 이미지, 영상 생성",
     badge: "신규",
     badgeType: "new",
@@ -215,6 +198,7 @@ export const VIDEO_MODELS: readonly ModelOption[] = [
     id: "hf_mult_motion_control",
     name: "Higgsfield Genjutsu",
     provider: "Higgsfield",
+    platform: "higgsfield",
     description: "고급 카메라 제어와 모션 이펙트 프리셋",
     badge: "신규",
     badgeType: "free",
@@ -225,8 +209,55 @@ export const VIDEO_MODELS: readonly ModelOption[] = [
     id: "gemini_omni",
     name: "Gemini Omni Flash",
     provider: "Google",
+    platform: "higgsfield",
     description: "Google의 멀티 이미지 영상 생성",
     tags: ["멀티 이미지"],
+    iconType: "google"
+  },
+
+  // === Google Flow CLI 비디오 모델 ===
+  {
+    id: "flow_veo_fast",
+    name: "Google Veo 3.1 Fast (Flow)",
+    provider: "Google Flow",
+    platform: "flow",
+    description: "Google Flow 공식 Veo 3.1. 고속 물리 시뮬레이션 및 역동적인 카메라 모션 영상",
+    badge: "Flow 추천",
+    badgeType: "recommended",
+    tags: ["Google Flow", "Veo 3.1", "최대 8초"],
+    iconType: "google"
+  },
+  {
+    id: "flow_veo_quality",
+    name: "Google Veo 3.1 Quality (Flow)",
+    provider: "Google Flow",
+    platform: "flow",
+    description: "영화 같은 극적인 시네마틱 화질과 정교한 디테일 보존을 제공하는 프리미엄 Veo 모델",
+    badge: "Flow 시네마틱",
+    badgeType: "new",
+    tags: ["Google Flow", "Veo Quality", "8초"],
+    iconType: "google"
+  },
+  {
+    id: "flow_veo_lite",
+    name: "Google Veo 3.1 Lite (Flow)",
+    provider: "Google Flow",
+    platform: "flow",
+    description: "가장 저렴한 크레딧 소모로 부담 없이 빠르게 클립을 뽑아낼 수 있는 실속형 Veo 모델",
+    badge: "Flow 최고가성비",
+    badgeType: "value",
+    tags: ["Google Flow", "Veo Lite", "빠른 생성"],
+    iconType: "google"
+  },
+  {
+    id: "flow_omni_flash",
+    name: "Gemini Omni Flash (Flow)",
+    provider: "Google Flow",
+    platform: "flow",
+    description: "Google Flow 공식 Omni 모델. 고속 영상 생성 및 최대 10초까지 생성 가능한 롱 클립 모델",
+    badge: "Flow 롱클립",
+    badgeType: "recommended",
+    tags: ["Google Flow", "단일 샷", "최대 10초"],
     iconType: "google"
   }
 ];
@@ -283,28 +314,39 @@ export function ModelSelectorModal({
   onClose
 }: ModelSelectorModalProps) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [providerFilter, setProviderFilter] = useState<"all" | "higgsfield" | "flow">("all");
-  const [tempSelectedId, setTempSelectedId] = useState<string>(selectedModelId);
   const models = mode === "image" ? IMAGE_MODELS : VIDEO_MODELS;
+
+  // 현재 선택된 모델에 맞게 힉스필드 vs Flow CLI 탭 자동 설정
+  const initialProvider: "higgsfield" | "flow" = (() => {
+    const cur = models.find((m) => m.id === selectedModelId);
+    if (cur) return cur.platform;
+    return selectedModelId.startsWith("flow_") || selectedModelId.endsWith("_flow") ? "flow" : "higgsfield";
+  })();
+
+  const [providerFilter, setProviderFilter] = useState<"higgsfield" | "flow">(initialProvider);
+  const [tempSelectedId, setTempSelectedId] = useState<string>(selectedModelId);
 
   const selectedModel = models.find((m) => m.id === tempSelectedId) ?? models[0];
 
+  const higgsfieldCount = models.filter((m) => m.platform === "higgsfield").length;
+  const flowCount = models.filter((m) => m.platform === "flow").length;
+
   const filtered = models.filter((m) => {
-    // Provider filter
-    if (providerFilter === "flow" && !m.provider.includes("Flow") && !m.tags?.includes("Google Flow")) {
-      return false;
-    }
-    if (providerFilter === "higgsfield" && (m.provider.includes("Flow") || m.tags?.includes("Google Flow"))) {
+    // 1. 플랫폼 필터 (전체 제거, 오직 힉스필드 또는 Flow CLI)
+    if (m.platform !== providerFilter) {
       return false;
     }
 
-    // Search query filter
+    // 2. 검색어 필터
+    if (!searchTerm.trim()) {
+      return true;
+    }
     const q = searchTerm.toLowerCase();
     return (
       m.name.toLowerCase().includes(q) ||
       m.description.toLowerCase().includes(q) ||
       m.provider.toLowerCase().includes(q) ||
-      (m.badge && m.badge.toLowerCase().includes(q))
+      Boolean(m.badge && m.badge.toLowerCase().includes(q))
     );
   });
 
@@ -368,7 +410,7 @@ export function ModelSelectorModal({
             </button>
           </div>
 
-          {/* 검색창 (첨부 이미지 스타일) */}
+          {/* 검색창 */}
           <div
             style={{
               position: "relative",
@@ -399,69 +441,57 @@ export function ModelSelectorModal({
             />
           </div>
 
-          {/* 공급자 필터 탭 (전체, 힉스필드 생태계, Google Flow) */}
-          <div style={{ display: "flex", gap: "0.4rem" }}>
+          {/* 공급자 필터 탭 (전체 제거 ➔ 힉스필드 vs Flow CLI 2개 항목으로 명확 분리) */}
+          <div style={{ display: "flex", gap: "0.5rem" }}>
             <button
               type="button"
-              onClick={() => setProviderFilter("all")}
+              onClick={() => setProviderFilter("higgsfield")}
               style={{
                 flex: 1,
-                padding: "0.35rem 0.5rem",
-                borderRadius: "6px",
-                fontSize: "12px",
-                fontWeight: providerFilter === "all" ? "bold" : "normal",
-                background: providerFilter === "all" ? "rgba(56, 189, 248, 0.2)" : "rgba(255, 255, 255, 0.05)",
-                color: providerFilter === "all" ? "#38bdf8" : "#94a3b8",
-                border: providerFilter === "all" ? "1px solid #38bdf8" : "1px solid transparent",
+                padding: "0.45rem 0.75rem",
+                borderRadius: "8px",
+                fontSize: "13px",
+                fontWeight: providerFilter === "higgsfield" ? "bold" : "normal",
+                background: providerFilter === "higgsfield"
+                  ? "linear-gradient(135deg, rgba(234, 179, 8, 0.25) 0%, rgba(168, 85, 247, 0.2) 100%)"
+                  : "rgba(255, 255, 255, 0.05)",
+                color: providerFilter === "higgsfield" ? "#facc15" : "#94a3b8",
+                border: providerFilter === "higgsfield" ? "1.5px solid #eab308" : "1px solid rgba(255, 255, 255, 0.1)",
                 cursor: "pointer",
-                transition: "all 0.15s ease"
+                transition: "all 0.15s ease",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "6px"
               }}
             >
-              전체
+              <span>✨</span>
+              <span>힉스필드 ({higgsfieldCount})</span>
             </button>
             <button
               type="button"
               onClick={() => setProviderFilter("flow")}
               style={{
                 flex: 1,
-                padding: "0.35rem 0.5rem",
-                borderRadius: "6px",
-                fontSize: "12px",
+                padding: "0.45rem 0.75rem",
+                borderRadius: "8px",
+                fontSize: "13px",
                 fontWeight: providerFilter === "flow" ? "bold" : "normal",
-                background: providerFilter === "flow" ? "rgba(66, 133, 244, 0.2)" : "rgba(255, 255, 255, 0.05)",
-                color: providerFilter === "flow" ? "#60a5fa" : "#94a3b8",
-                border: providerFilter === "flow" ? "1px solid #60a5fa" : "1px solid transparent",
+                background: providerFilter === "flow"
+                  ? "linear-gradient(135deg, rgba(59, 130, 246, 0.3) 0%, rgba(56, 189, 248, 0.2) 100%)"
+                  : "rgba(255, 255, 255, 0.05)",
+                color: providerFilter === "flow" ? "#38bdf8" : "#94a3b8",
+                border: providerFilter === "flow" ? "1.5px solid #38bdf8" : "1px solid rgba(255, 255, 255, 0.1)",
                 cursor: "pointer",
                 transition: "all 0.15s ease",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: "4px"
+                gap: "6px"
               }}
             >
-              <span>🌐</span> Flow CLI
-            </button>
-            <button
-              type="button"
-              onClick={() => setProviderFilter("higgsfield")}
-              style={{
-                flex: 1,
-                padding: "0.35rem 0.5rem",
-                borderRadius: "6px",
-                fontSize: "12px",
-                fontWeight: providerFilter === "higgsfield" ? "bold" : "normal",
-                background: providerFilter === "higgsfield" ? "rgba(234, 179, 8, 0.2)" : "rgba(255, 255, 255, 0.05)",
-                color: providerFilter === "higgsfield" ? "#facc15" : "#94a3b8",
-                border: providerFilter === "higgsfield" ? "1px solid #facc15" : "1px solid transparent",
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "4px"
-              }}
-            >
-              <span>✦</span> 힉스필드/기타
+              <span>🌐</span>
+              <span>Flow CLI ({flowCount})</span>
             </button>
           </div>
         </div>

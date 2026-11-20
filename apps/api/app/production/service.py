@@ -5,6 +5,8 @@ import os
 import re
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -14,8 +16,11 @@ from openai import OpenAI
 from app.core.paths import find_repo_root
 from app.core.settings import AppSettings
 from app.production.models import (
+    AssetSheetManifest,
+    CharacterDefinition,
     ConceptKit,
     ContinuityState,
+    KeyPropItem,
     ProductionState,
     SceneItem,
     SceneTextBlock,
@@ -40,6 +45,7 @@ RAW_STT_FILENAME = "raw_stt.json"
 SCENE_DATA_FILENAME = "scene_data.json"
 CONCEPT_KIT_FILENAME = "concept_kit.json"
 VIDEO_SCENES_FILENAME = "video_scenes.json"
+ASSET_SHEET_FILENAME = "asset_sheet_manifest.json"
 SCENES_DIR_NAME = "scenes"
 THUMBNAIL_FILENAME = "thumbnail.png"
 THUMBNAIL_BG_FILENAME = "thumbnail_bg.png"
@@ -298,8 +304,14 @@ def align_subtitles_and_scenes_for_project(project_dir: Path, settings: AppSetti
     if not wav_path.exists():
         raise FileNotFoundError(f"{TTS_AUDIO_FILENAME} 파일이 없습니다. 먼저 TTS 음성을 생성해주세요.")
 
+    display_script_path = project_dir / "display_script.md"
     final_script_path = project_dir / "final_script.md"
-    script_text = final_script_path.read_text(encoding="utf-8") if final_script_path.exists() else ""
+    if display_script_path.exists():
+        script_text = display_script_path.read_text(encoding="utf-8")
+    elif final_script_path.exists():
+        script_text = final_script_path.read_text(encoding="utf-8")
+    else:
+        script_text = ""
 
     client = OpenAI(api_key=settings.openai_api_key)
 
@@ -629,8 +641,8 @@ def generate_concept_kit_and_video_scenes(
     `The [Hero Subject] remains steadfast and in sharp focus throughout the movement, strictly preventing disappearing, melting, or morphing glitches.`
 - **2. 3D 입체 패럴랙스 궤적 (Dynamic 3D Parallax Trajectory - 밋밋함 제거)**:
   - 단순 평면 2D 줌/풀백 대신, 피사체와 배경의 깊이감(Parallax)이 극대화되는 입체적 3D 궤적(Dynamic Arc Orbit, Low-angle Crane-up, Parallax Depth Push/Pull)을 부여하여 영화적 역동성을 살리세요.
-- **3. 피사체 스톱모션 액션 & 환경 모션 (Subject & Environmental Dynamics - 역동성 극대화)**:
-  - 카메라만 움직여서 밋밋해지는 것을 방지하기 위해, 피사체 자체의 점토 스톱모션 반응 제스처(`clay stop-motion micro-gestures`)와 환경 물리 효과(`dramatic moving studio rim lighting, subtle clay dust puff, tactile surface vibration`)를 함께 주입하세요.
+- **3. 피사체 자체 액션 & 환경 모션 (Subject & Environmental Dynamics - 역동성 극대화)**:
+  - 카메라만 움직여서 밋밋해지는 것을 방지하기 위해, 피사체 자체의 생동감 있는 반응 액션/제스처([dynamic subject action/gesture in {style.name} style])와 환경 물리 효과(dramatic moving studio lighting, authentic material surface motion, ambient atmospheric particles)를 함께 주입하세요.
 - **4. 단일 테이크 연속성 (Unbroken Continuous Take)**:
   - 한 씬 안에서 갑작스러운 화면 변형이나 점프가 일어나지 않도록 단일 테이크로 지정하세요:
     `Single continuous unbroken camera take, smooth flowing trajectory, absolutely no jump cuts, no morphing artifacts.`
@@ -650,7 +662,7 @@ def generate_concept_kit_and_video_scenes(
   12) `static_shot`: 삼각대에 안정적으로 고정하되, 피사체 자체의 스톱모션 액션과 드라마틱한 조명 변화 집중
 
 - **video_prompt 작성 공식 (역동성 & 피사체 보존 결합 포맷 - 영문 작성)**:
-  `Cinematic dynamic [camera_movement] in [style] style: The [Hero Subject from start image] remains clearly anchored and in sharp focus, [dynamic subject stop-motion action/gesture]. The camera [dynamic 3D physical trajectory with depth & parallax], while dramatic studio rim lighting highlights tactile clay textures. Single unbroken shot, strictly no morphing, no melting, no jump cuts.`
+  `Cinematic dynamic [camera_movement] in {style.name} style: The [Hero Subject from start image] remains clearly anchored and in sharp focus, [dynamic subject natural action/reaction]. The camera [dynamic 3D physical trajectory with depth & parallax], while dramatic studio lighting highlights authentic {style.name} visual textures. Single unbroken shot, strictly no morphing, no melting, no jump cuts.`
 
 ======================================================================
 [규칙 3: continuity 필드]
@@ -683,7 +695,27 @@ def generate_concept_kit_and_video_scenes(
     "continuity_rules": [
       "Camera motions smoothly guide the visual narrative through single-take transitions.",
       "The final frame object and camera angle of the previous scene seamlessly become the starting visual anchor of the next scene."
-    ]
+    ],
+    "character_definition": {{
+      "name": "주인공 캐릭터 영문 명칭 (예: main_character, lead_scientist, hero_figure)",
+      "description": "선택된 스타일({style.name})에 부합하는 캐릭터 외모, 의상 및 질감 묘사 (영문)",
+      "turnaround_prompt": "Full-body character turnaround of the character, front view, 3/4 angle, side view side-by-side on clean studio background"
+    }},
+    "key_props": [
+      {{
+        "id": "prop_1",
+        "name": "핵심 오브제 1 명칭 (예: key_thematic_prop_1)",
+        "description": "선택된 스타일({style.name})에 부합하는 오브제 1 시각적 형태 및 질감 묘사 (영문)",
+        "prompt": "Close-up isolated hero prop of prop 1 on clean studio background"
+      }},
+      {{
+        "id": "prop_2",
+        "name": "핵심 오브제 2 명칭 (예: key_thematic_prop_2)",
+        "description": "선택된 스타일({style.name})에 부합하는 오브제 2 시각적 형태 및 질감 묘사 (영문)",
+        "prompt": "Close-up isolated hero prop of prop 2 on clean studio background"
+      }}
+    ],
+    "master_asset_sheet_prompt": "[{style.name.upper()} MASTER CONCEPT ART SHEET - {style.default_concept_style}]: Professional 3-section concept art sheet, 16:9 aspect ratio, solid pure light-gray (#f0f2f5) studio backdrop. Strict mathematical layout with 2 main zones separated by a wide empty vertical gutter: [ZONE 1: LEFT 58% WIDTH (X: 0% to 58%)]: Full-body character turnaround of main character in authentic {style.name} style, showing exactly 3 views side-by-side (front view, 45-degree 3/4 view, side profile view), centered within this left 58% box and strictly NOT crossing past X=58%. [EMPTY VERTICAL GUTTER (X: 58% to 64%)]: Completely blank empty studio background spacing with zero objects. [ZONE 2: RIGHT 36% WIDTH (X: 64% to 100%)]: Divided vertically into two isolated stacked boxes: [TOP BOX (Y: 0% to 48%)]: Close-up isolated hero prop 1 in authentic {style.name} style, centered floating on empty space. [MIDDLE HORIZONTAL GUTTER (Y: 48% to 52%)]: Blank empty space. [BOTTOM BOX (Y: 52% to 100%)]: Close-up isolated hero prop 2 in authentic {style.name} style, centered floating on empty space. Authentic {style.image_prompt_guide}, strictly isolated floating assets, generous negative margins, strictly NO text, NO labels, NO borders, NO grid lines."
   }},
   "video_scenes": [
     {{
@@ -695,6 +727,8 @@ def generate_concept_kit_and_video_scenes(
       "camera_movement": "crash_zoom_in",
       "start_image_prompt": "{style.sample_prompt_prefix}",
       "video_prompt": "camera: crash zoom in. movement: snap the lens rapidly toward the focal subject. speed: very fast and punchy. framing: keep the subject readable through sudden scale change. end: land on an intense close-up, smoothly handing off to scene 2, no jump cuts.",
+      "requires_character": true,
+      "required_props": ["prop_2"],
       "continuity": {{
         "camera": "Eye-level starting shot performing a smooth motion",
         "subject_state": "Initial state of the subject in Scene 1",
@@ -740,6 +774,8 @@ def generate_concept_kit_and_video_scenes(
             camera_movement=item.get("camera_movement") or None,
             continuity=ContinuityState.model_validate(item.get("continuity", {})),
             is_locked=bool(item.get("is_locked", False)),
+            requires_character=bool(item.get("requires_character", True)),
+            required_props=list(item.get("required_props", [])),
         )
         raw_video_scenes.append(vs)
 
@@ -757,6 +793,313 @@ def generate_concept_kit_and_video_scenes(
     )
 
     return concept_kit, video_scenes
+
+
+def _auto_trim_margin(cropped: Any, padding_ratio: float = 0.04) -> Any:
+    """
+    스튜디오 배경의 여백을 정밀 감지하여 주요 객체 영역만 자연스러운 패딩(기본 4%)을 두고 크롭합니다.
+    순수 PIL로 동작하여 외부 의존성 없이 빠르고 안정적입니다.
+    """
+    try:
+        from PIL import Image, ImageChops
+
+        if not isinstance(cropped, Image.Image):
+            return cropped
+
+        img_rgb = cropped.convert("RGB")
+        w, h = img_rgb.size
+        corners = [
+            img_rgb.getpixel((0, 0)),
+            img_rgb.getpixel((w - 1, 0)),
+            img_rgb.getpixel((0, h - 1)),
+            img_rgb.getpixel((w - 1, h - 1)),
+        ]
+        bg_r = sum(c[0] for c in corners) // 4
+        bg_g = sum(c[1] for c in corners) // 4
+        bg_b = sum(c[2] for c in corners) // 4
+
+        bg_img = Image.new("RGB", (w, h), (bg_r, bg_g, bg_b))
+        diff = ImageChops.difference(img_rgb, bg_img).convert("L")
+        mask = diff.point(lambda p: 255 if p > 18 else 0)
+        bbox = mask.getbbox()
+        if not bbox:
+            return cropped
+
+        bw = bbox[2] - bbox[0]
+        bh = bbox[3] - bbox[1]
+        pad_x = int(bw * padding_ratio)
+        pad_y = int(bh * padding_ratio)
+        x1 = max(0, bbox[0] - pad_x)
+        y1 = max(0, bbox[1] - pad_y)
+        x2 = min(w, bbox[2] + pad_x)
+        y2 = min(h, bbox[3] + pad_y)
+
+        if (x2 - x1) > 40 and (y2 - y1) > 40:
+            return cropped.crop((x1, y1, x2, y2))
+    except Exception:
+        pass
+    return cropped
+
+
+def _find_smart_asset_split_points(img: Any) -> tuple[int, int]:
+    """
+    16:9 마스터 에셋 시트에서 배경을 분석하여,
+    1) 캐릭터(좌측)와 소품들(우측) 사이의 가장 깊고 넓은 빈 수직 여백 거터(Vertical Valley) split_x를 찾고,
+    2) 우측 소품 영역에서 상단 소품과 하단 소품 사이의 빈 수평 여백 거터(Horizontal Valley) split_y를 수학적으로 검출합니다.
+    순수 PIL 투영 히스토그램을 사용하여 0.01초 내에 1픽셀 오차 없이 검출합니다.
+    오브젝트 감지에 실패하거나 배경이 복잡할 경우 수치 기준 기본값(X: 62%, Y: 50%)을 반환합니다.
+    """
+    from PIL import Image, ImageChops
+
+    W, H = img.size
+    default_x = int(W * 0.62)
+    default_y = int(H * 0.50)
+
+    try:
+        im_rgb = img.convert("RGB")
+        corners = [
+            im_rgb.getpixel((0, 0)),
+            im_rgb.getpixel((W - 1, 0)),
+            im_rgb.getpixel((0, H - 1)),
+            im_rgb.getpixel((W - 1, H - 1)),
+        ]
+        bg_r = sum(c[0] for c in corners) // 4
+        bg_g = sum(c[1] for c in corners) // 4
+        bg_b = sum(c[2] for c in corners) // 4
+
+        bg_img = Image.new("RGB", (W, H), (bg_r, bg_g, bg_b))
+        diff = ImageChops.difference(im_rgb, bg_img).convert("L")
+        mask = diff.point(lambda p: 255 if p > 18 else 0)
+
+        # 400px 축소본으로 초고속 히스토그램 투영
+        scale_w = 400
+        scale_h = max(100, int(H * (scale_w / W)))
+        small_mask = mask.resize((scale_w, scale_h), Image.Resampling.BILINEAR)
+        pix = small_mask.load()
+
+        # 1. X축 수직 거터 탐색 (너비의 45% ~ 82% 구간)
+        x_start = int(scale_w * 0.45)
+        x_end = int(scale_w * 0.82)
+        x_counts = []
+        for x in range(x_start, x_end):
+            col_sum = sum(pix[x, y] for y in range(scale_h))
+            x_counts.append((x, col_sum))
+
+        min_x_val = min(c[1] for c in x_counts)
+        best_xs = [c[0] for c in x_counts if c[1] <= min_x_val + 255]
+        best_x_small = best_xs[len(best_xs) // 2]
+        split_x = int(best_x_small * (W / scale_w))
+
+        # 2. Y축 수평 거터 탐색 (우측 영역에서 높이의 30% ~ 70% 구간)
+        y_start = int(scale_h * 0.30)
+        y_end = int(scale_h * 0.70)
+        y_counts = []
+        for y in range(y_start, y_end):
+            row_sum = sum(pix[x, y] for x in range(best_x_small, scale_w))
+            y_counts.append((y, row_sum))
+
+        min_y_val = min(c[1] for c in y_counts)
+        best_ys = [c[0] for c in y_counts if c[1] <= min_y_val + 255]
+        best_y_small = best_ys[len(best_ys) // 2]
+        split_y = int(best_y_small * (H / scale_h))
+
+        return split_x, split_y
+    except Exception as e:
+        print(f"[Smart Split Warning] {e}. Using fallback split points.")
+        return default_x, default_y
+
+
+def generate_master_asset_sheet(
+    project_dir: Path,
+    settings: AppSettings,
+    model: str = "nano_banana_pro",
+) -> AssetSheetManifest:
+    """
+    단 1회의 16:9 와이드 생성으로 메인 캐릭터(좌측 60%)와 핵심 오브제 2개(우측 상/하 40%)를
+    한 번에 뽑아내고, 오차 없이 3개의 독립 에셋 파일로 자동 분할합니다.
+    """
+    from PIL import Image, ImageDraw
+    import datetime
+
+    concept_kit_file = project_dir / CONCEPT_KIT_FILENAME
+    concept_kit: dict = {}
+    if concept_kit_file.exists():
+        try:
+            concept_kit = json.loads(concept_kit_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    # 스타일 및 캐릭터/오브제 메타데이터 추출
+    style_id = concept_kit.get("visual_style_id", "claymation")
+    style = get_visual_style(style_id)
+    style_desc = concept_kit.get("visual_style") or style.default_concept_style
+
+    char_def = concept_kit.get("character_definition") or {}
+    char_name = char_def.get("name", "main_character")
+    char_desc = (char_def.get("description") or "").strip()
+    if not char_desc or char_desc == "miniature handcrafted clay person":
+        char_desc = f"Main character '{char_name}' designed in authentic {style.name} style"
+
+    key_props = concept_kit.get("key_props") or []
+    prop_1_info = key_props[0] if len(key_props) > 0 else {"name": "key_prop_1", "description": "thematic scientific object"}
+    prop_2_info = key_props[1] if len(key_props) > 1 else {"name": "key_prop_2", "description": "thematic secondary prop"}
+    p1_desc = prop_1_info.get("description") or f"hero prop '{prop_1_info.get('name', 'prop1')}'"
+    p2_desc = prop_2_info.get("description") or f"secondary prop '{prop_2_info.get('name', 'prop2')}'"
+
+    # 비-클레이메이션 스타일 선택 시 과거 점토 수식어 자동 정제
+    if style.id != "claymation":
+        char_desc = char_desc.replace("clay ", "").replace("clay", "").replace("Clay ", "").replace("Clay", "").replace("plasticine ", "")
+        p1_desc = p1_desc.replace("clay ", "").replace("clay", "").replace("Clay ", "").replace("Clay", "").replace("plasticine ", "")
+        p2_desc = p2_desc.replace("clay ", "").replace("clay", "").replace("Clay ", "").replace("Clay", "").replace("plasticine ", "")
+
+    # 비-클레이메이션 스타일 선택 시 과거 점토 수식어 자동 정제
+    if style_id != "claymation":
+        char_desc = char_desc.replace("clay ", "").replace("clay", "").replace("Clay ", "").replace("Clay", "").replace("plasticine ", "")
+        p1_desc = p1_desc.replace("clay ", "").replace("clay", "").replace("Clay ", "").replace("Clay", "").replace("plasticine ", "")
+        p2_desc = p2_desc.replace("clay ", "").replace("clay", "").replace("Clay ", "").replace("Clay", "").replace("plasticine ", "")
+
+    # 선택된 비주얼 스타일(클레이메이션 등)을 100% 반영하는 강력한 16:9 3구역 마스터 에셋 시트 프롬프트 구성
+    sheet_prompt = (
+        f"[{style.name.upper()} MASTER CONCEPT ART SHEET - {style_desc}]. "
+        f"16:9 widescreen aspect ratio (2752x1536), solid pure light-gray (#f0f2f5) studio backdrop. "
+        f"Strict mathematical layout with 2 main zones separated by a wide empty blank vertical gutter: "
+        f"[ZONE 1: LEFT 58% WIDTH (X: 0% to 58%)]: Full-body character turnaround of {char_desc} in authentic {style.name} aesthetic, "
+        f"showing exactly 3 views side-by-side (front view, 45-degree 3/4 view, side profile view), centered within this left 58% box and strictly NOT crossing past X=58%. "
+        f"[EMPTY VERTICAL GUTTER (X: 58% to 64%)]: Completely blank empty studio background spacing with zero objects. "
+        f"[ZONE 2: RIGHT 36% WIDTH (X: 64% to 100%)]: Divided vertically into two isolated stacked boxes: "
+        f"  - [TOP BOX (Y: 0% to 48%)]: Close-up isolated hero prop of {p1_desc} in authentic {style.name} aesthetic, centered floating on empty space. "
+        f"  - [MIDDLE HORIZONTAL GUTTER (Y: 48% to 52%)]: Completely blank empty space. "
+        f"  - [BOTTOM BOX (Y: 52% to 100%)]: Close-up isolated hero prop of {p2_desc} in authentic {style.name} aesthetic, centered floating on empty space. "
+        f"Rendering directive: Authentic {style.image_prompt_guide}. Strict tactile material consistency across character and props, "
+        f"macro photography studio lighting, generous negative margins, strictly NO text, NO labels, NO borders, NO grid lines."
+    )
+
+    # 생성된 프롬프트를 concept_kit에 보존
+    concept_kit["master_asset_sheet_prompt"] = sheet_prompt
+    try:
+        concept_kit_file.write_text(json.dumps(concept_kit, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+    assets_dir = project_dir / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    master_sheet_path = assets_dir / "master_asset_sheet.png"
+
+    has_generated = False
+
+    # 0. Google Flow (gflow) 모델로 마스터 에셋 시트 생성 시도
+    if model in FLOW_IMAGE_MODELS or model.startswith("flow_"):
+        alias = FLOW_IMAGE_MODELS.get(model, "nano-pro")
+        try:
+            _run_flow_image_generate(
+                model_alias=alias,
+                prompt=sheet_prompt,
+                output_path=master_sheet_path,
+                aspect_ratio="16:9",
+            )
+            if master_sheet_path.exists() and master_sheet_path.stat().st_size > 1000:
+                has_generated = True
+        except Exception as e:
+            print(f"[Google Flow Master Asset Sheet Error] {e}")
+
+    # 1. 힉스필드 모델 시도
+    if not has_generated and model != "dall-e-3":
+        try:
+            image_url = _run_higgsfield_generate(
+                job_type=model,
+                prompt=sheet_prompt,
+                aspect_ratio="16:9",
+                resolution="2k",
+            )
+            if image_url and image_url.startswith("http"):
+                resp = httpx.get(image_url, timeout=90.0)
+                if resp.status_code == 200 and len(resp.content) > 1000:
+                    master_sheet_path.write_bytes(resp.content)
+                    has_generated = True
+        except Exception as e:
+            print(f"[Asset Sheet Generate Warning] {e}. Falling back to clean template generator.")
+
+    # fallback (CLI 미설치 또는 오프라인 테스트 시)
+    if not has_generated or not master_sheet_path.exists() or master_sheet_path.stat().st_size < 1000:
+        W, H = 1920, 1080
+        fallback_img = Image.new("RGB", (W, H), color=(241, 245, 249))
+        draw = ImageDraw.Draw(fallback_img)
+        draw.line([(int(W * 0.60), 0), (int(W * 0.60), H)], fill=(203, 213, 225), width=4)
+        draw.line([(int(W * 0.60), int(H * 0.50)), (W, int(H * 0.50))], fill=(203, 213, 225), width=4)
+
+        draw.text((int(W * 0.30), int(H * 0.15)), "CHARACTER TURNAROUND (FRONT / 45° / SIDE)", fill=(71, 85, 105), anchor="mm")
+        draw.rounded_rectangle([100, 250, int(W * 0.60) - 100, H - 150], radius=20, fill=(226, 232, 240), outline=(59, 130, 246), width=3)
+        draw.text((int(W * 0.30), int(H * 0.55)), f"{char_name}\n({char_desc[:40]})", fill=(30, 41, 59), anchor="mm")
+
+        draw.text((int(W * 0.80), int(H * 0.10)), "HERO PROP 1", fill=(71, 85, 105), anchor="mm")
+        draw.rounded_rectangle([int(W * 0.60) + 80, 120, W - 80, int(H * 0.50) - 50], radius=16, fill=(226, 232, 240), outline=(16, 185, 129), width=3)
+        draw.text((int(W * 0.80), int(H * 0.28)), f"{prop_1_info.get('name')}\n({prop_1_info.get('description', '')[:30]})", fill=(30, 41, 59), anchor="mm")
+
+        draw.text((int(W * 0.80), int(H * 0.58)), "HERO PROP 2", fill=(71, 85, 105), anchor="mm")
+        draw.rounded_rectangle([int(W * 0.60) + 80, int(H * 0.50) + 70, W - 80, H - 70], radius=16, fill=(226, 232, 240), outline=(245, 158, 11), width=3)
+        draw.text((int(W * 0.80), int(H * 0.78)), f"{prop_2_info.get('name')}\n({prop_2_info.get('description', '')[:30]})", fill=(30, 41, 59), anchor="mm")
+
+        fallback_img.save(master_sheet_path)
+
+    img = Image.open(master_sheet_path)
+    W, H = img.size
+
+    # 컴퓨터 비전(CV) 기반 지능형 빈 여백 계곡(Gutter Valley) 탐색
+    split_x, split_y = _find_smart_asset_split_points(img)
+
+    # 1) 캐릭터 턴어라운드 (좌측 0 ~ split_x 통째 + 스마트 패딩 트림)
+    char_crop = img.crop((0, 0, split_x, H))
+    char_trimmed = _auto_trim_margin(char_crop, padding_ratio=0.03)
+    char_path = assets_dir / "master_character.png"
+    char_trimmed.save(char_path)
+
+    # 2) 핵심 소품 1 (우측 상단: split_x ~ W, 0 ~ split_y + 스마트 패딩 트림)
+    prop1_crop = img.crop((split_x, 0, W, split_y))
+    prop1_trimmed = _auto_trim_margin(prop1_crop, padding_ratio=0.05)
+    prop1_path = assets_dir / "prop_1.png"
+    prop1_trimmed.save(prop1_path)
+
+    # 3) 핵심 소품 2 (우측 하단: split_x ~ W, split_y ~ H + 스마트 패딩 트림)
+    prop2_crop = img.crop((split_x, split_y, W, H))
+    prop2_trimmed = _auto_trim_margin(prop2_crop, padding_ratio=0.05)
+    prop2_path = assets_dir / "prop_2.png"
+    prop2_trimmed.save(prop2_path)
+
+    pid = project_dir.name
+    manifest = AssetSheetManifest(
+        has_sheet=True,
+        master_sheet_url=f"/api/projects/{pid}/production/assets/master_asset_sheet.png",
+        character_url=f"/api/projects/{pid}/production/assets/master_character.png",
+        prop_1_url=f"/api/projects/{pid}/production/assets/prop_1.png",
+        prop_2_url=f"/api/projects/{pid}/production/assets/prop_2.png",
+        prop_1_name=str(prop_1_info.get("name", "Object 1")),
+        prop_2_name=str(prop_2_info.get("name", "Object 2")),
+        character_name=str(char_name),
+        created_at=datetime.datetime.now().isoformat(),
+    )
+
+    (assets_dir / ASSET_SHEET_FILENAME).write_text(
+        json.dumps(manifest.model_dump(), ensure_ascii=False, indent=2),
+        encoding="utf-8"
+    )
+
+    return manifest
+
+
+def read_asset_sheet_manifest(project_dir: Path, project_id: str | None = None) -> AssetSheetManifest | None:
+    manifest_path = project_dir / "assets" / ASSET_SHEET_FILENAME
+    if manifest_path.exists():
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            pid = project_id or project_dir.name
+            data["master_sheet_url"] = f"/api/projects/{pid}/production/assets/master_asset_sheet.png"
+            data["character_url"] = f"/api/projects/{pid}/production/assets/master_character.png"
+            data["prop_1_url"] = f"/api/projects/{pid}/production/assets/prop_1.png"
+            data["prop_2_url"] = f"/api/projects/{pid}/production/assets/prop_2.png"
+            return AssetSheetManifest.model_validate(data)
+        except Exception:
+            pass
+    return None
 
 
 def _generate_fallback_clay_image(target_path: Path, scene_id: int, prompt_summary: str, is_final: bool = False) -> None:
@@ -1014,8 +1357,9 @@ def _run_flow_image_generate(
     output_path: Path,
     aspect_ratio: str = "9:16",
     timeout_minutes: int = 10,
+    references: list[Path] | None = None,
 ) -> Path:
-    """Google Flow CLI(gflow/flow)를 이용한 고품질 Imagen 이미지 생성 (멀티 워커 병렬 지원)"""
+    """Google Flow CLI(gflow/flow)를 이용한 고품질 Imagen 이미지 생성 (에셋 시트 i2i 참조 및 멀티 워커 병렬 지원)"""
     # 이전 생성 시도에서 남은 잔여/더미 파일 사전 정리 (오인 방지)
     output_path.unlink(missing_ok=True)
     for ext in (".jpg", ".jpeg", ".webp"):
@@ -1023,18 +1367,33 @@ def _run_flow_image_generate(
 
     gflow_bin = shutil.which("gflow") or shutil.which("flow") or "gflow"
     env = _build_flow_env()
-    # 이전 생성 시도에서 남은 잔여/더미 파일 사전 정리
-    output_path.unlink(missing_ok=True)
+
+    # 유효한 참조 이미지 필터링 (에셋 시트 캐릭터/소품)
+    valid_refs = [p for p in (references or []) if p.exists() and p.stat().st_size > 0]
 
     with _acquire_flow_profile() as profile_name:
-        cmd = [
-            gflow_bin, "image", "t2i", prompt,
-            "--profile", profile_name,
-            "--model", model_alias,
-            "--aspect", aspect_ratio,
-            "-o", str(output_path),
-            "--json",
-        ]
+        if valid_refs:
+            # 🎨 에셋 시트 참조가 존재하는 경우 i2i 모드로 로컬 에셋 이미지들을 전달
+            cmd = [
+                gflow_bin, "image", "i2i", prompt,
+                "--profile", profile_name,
+                "--model", model_alias,
+                "--aspect", aspect_ratio,
+                "-o", str(output_path),
+                "--json",
+            ]
+            for ref_p in valid_refs:
+                cmd.extend(["--ref", str(ref_p.resolve())])
+        else:
+            # 텍스트 프롬프트 단독 생성 (t2i 모드)
+            cmd = [
+                gflow_bin, "image", "t2i", prompt,
+                "--profile", profile_name,
+                "--model", model_alias,
+                "--aspect", aspect_ratio,
+                "-o", str(output_path),
+                "--json",
+            ]
         res = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout_minutes * 60)
 
     # gflow-cli는 Google CDN에서 다운로드 시 실제 미디어 포맷(JPEG)에 맞게 확장자를 .jpg 등으로 변경하여 저장함
@@ -1108,101 +1467,133 @@ def _run_flow_video_generate(
     end_image: Path | None = None,
     duration: int | None = 6,
     aspect_ratio: str = "9:16",
-    timeout_minutes: int = 15,
+    timeout_minutes: int | None = None,
+    timeout_seconds: int = 300,
+    max_retries: int = 3,
 ) -> Path:
-    """Google Flow CLI(gflow/flow)를 이용한 Veo 비디오 생성 (멀티 워커 병렬 지원)"""
+    """Google Flow CLI(gflow/flow)를 이용한 Veo 비디오 생성 (5분 타임아웃 및 자동 재시도 지원)"""
     import time
     import uuid
 
+    if timeout_minutes is not None:
+        timeout_seconds = timeout_minutes * 60
+
     gflow_bin = shutil.which("gflow") or shutil.which("flow") or "gflow"
     env = _build_flow_env()
-    # 이전 생성 시도에서 남은 잔여/더미 파일 사전 정리
-    output_path.unlink(missing_ok=True)
 
-    with _acquire_flow_profile() as profile_name:
-        def build_cmd(use_duration: bool) -> list[str]:
-            c = [
-                gflow_bin, "video", "i2v",
-                "--profile", profile_name,
-                "--model", model_alias,
-                "--aspect", aspect_ratio,
-                "-o", str(output_path),
-                "--json",
-            ]
-            if start_image and start_image.exists():
-                c.extend(["-i", str(start_image)])
+    last_error = ""
 
-            if end_image and end_image.exists() and model_alias in ("omni-flash",):
-                c.extend(["-e", str(end_image)])
-
-            if use_duration:
-                d_val = "10" if (duration and duration >= 8 and model_alias == "omni-flash") else ("8" if duration and duration >= 8 else "6")
-                c.extend(["--duration", d_val])
-
-            c.append(prompt)
-            return c
-
-        # 1차: duration 지정 실행 (계정/모델 코호트에서 duration 컨트롤 미지원 시 2차로 즉시 폴백)
-        use_duration_first = bool(duration)
-        cmd = build_cmd(use_duration=use_duration_first)
-        res = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout_minutes * 60)
-
-        err_text = (res.stderr or "") + (res.stdout or "")
-        if use_duration_first and res.returncode != 0 and ("renders no duration control" in err_text or "duration" in err_text.lower()):
-            time.sleep(3)
-            cmd = build_cmd(use_duration=False)
-            res = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout_minutes * 60)
-            err_text = (res.stderr or "") + (res.stdout or "")
-
-        # 생성은 완료되었으나 다운로드 리다이렉트(HTTP 302 등) 에러인 경우, 같은 워커 프로필로 즉시 자동 복구
-        if res.returncode != 0 and (
-            "signed media URL" in err_text
-            or "MediaDownloadError" in err_text
-            or "302" in err_text
-            or "WireFormatError" in err_text
-        ):
-            try:
-                time.sleep(2)
-                media_id = _extract_media_id_from_output(err_text, profile_name)
-                if media_id:
-                    recovery_dir = output_path.parent / f".flow_recover_{uuid.uuid4().hex[:8]}"
-                    recovery_dir.mkdir(parents=True, exist_ok=True)
-                    try:
-                        download_cmd = [
-                            gflow_bin, "data", "download", media_id,
-                            "--profile", profile_name,
-                            "--out", str(recovery_dir),
-                        ]
-                        subprocess.run(download_cmd, capture_output=True, text=True, env=env, timeout=180)
-                        cand = recovery_dir / f"{media_id}.mp4"
-                        if cand.exists() and cand.stat().st_size > 1000:
-                            cand.replace(output_path)
-                    finally:
-                        shutil.rmtree(recovery_dir, ignore_errors=True)
-            except Exception as recover_err:
-                print(f"[Flow Video Recovery Error ({profile_name})] {recover_err}")
-
-    actual_file: Path | None = None
-    if output_path.exists() and output_path.stat().st_size > 0:
-        actual_file = output_path
-    else:
+    for attempt in range(1, max_retries + 1):
+        # 이전 생성 시도에서 남은 잔여/더미 파일 사전 정리
+        output_path.unlink(missing_ok=True)
         for ext in (".mp4", ".mov", ".webm"):
-            alt = output_path.with_suffix(ext)
-            if alt.exists() and alt.stat().st_size > 0:
-                actual_file = alt
-                break
+            output_path.with_suffix(ext).unlink(missing_ok=True)
 
-    if not actual_file or not actual_file.exists() or actual_file.stat().st_size == 0:
-        err = (res.stderr or res.stdout or f"Exit code {res.returncode}").strip()
-        raise RuntimeError(f"Google Flow 비디오 생성 실패 (profile={profile_name}): {err}")
+        print(f"[Flow Video] 🎬 비디오 생성 시도 {attempt}/{max_retries} 시작 (5분 타임아웃 제한: {timeout_seconds}초)...")
 
-    # 우측 하단 워터마크 자동 제거
-    _clean_watermark_if_available(actual_file)
+        try:
+            with _acquire_flow_profile() as profile_name:
+                def build_cmd(use_duration: bool) -> list[str]:
+                    c = [
+                        gflow_bin, "video", "i2v",
+                        "--profile", profile_name,
+                        "--model", model_alias,
+                        "--aspect", aspect_ratio,
+                        "-o", str(output_path),
+                        "--json",
+                    ]
+                    if start_image and start_image.exists():
+                        c.extend(["-i", str(start_image)])
 
-    if actual_file != output_path:
-        shutil.copy2(actual_file, output_path)
+                    if end_image and end_image.exists() and model_alias in ("omni-flash",):
+                        c.extend(["-e", str(end_image)])
 
-    return output_path
+                    if use_duration:
+                        d_val = "10" if (duration and duration >= 8 and model_alias == "omni-flash") else ("8" if duration and duration >= 8 else "6")
+                        c.extend(["--duration", d_val])
+
+                    c.append(prompt)
+                    return c
+
+                # 1차: duration 지정 실행 (미지원 시 duration 제외하고 재시도)
+                use_duration_first = bool(duration)
+                cmd = build_cmd(use_duration=use_duration_first)
+                try:
+                    res = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout_seconds)
+                except subprocess.TimeoutExpired:
+                    print(f"[Flow Video] ⏱️ 5분({timeout_seconds}초) 초과로 타임아웃 발생 (시도 {attempt}/{max_retries}). 프로세스 정리 후 재시도합니다.")
+                    last_error = f"5분 타임아웃 초과 (시도 {attempt})"
+                    continue
+
+                err_text = (res.stderr or "") + (res.stdout or "")
+                if use_duration_first and res.returncode != 0 and ("renders no duration control" in err_text or "duration" in err_text.lower()):
+                    time.sleep(3)
+                    cmd = build_cmd(use_duration=False)
+                    try:
+                        res = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout_seconds)
+                        err_text = (res.stderr or "") + (res.stdout or "")
+                    except subprocess.TimeoutExpired:
+                        print(f"[Flow Video] ⏱️ 5분({timeout_seconds}초) 초과로 타임아웃 발생 (시도 {attempt}/{max_retries}). 프로세스 정리 후 재시도합니다.")
+                        last_error = f"5분 타임아웃 초과 (시도 {attempt})"
+                        continue
+
+                # 생성은 완료되었으나 다운로드 리다이렉트(HTTP 302 등) 에러인 경우 복구
+                if res.returncode != 0 and (
+                    "signed media URL" in err_text
+                    or "MediaDownloadError" in err_text
+                    or "302" in err_text
+                    or "WireFormatError" in err_text
+                ):
+                    try:
+                        time.sleep(2)
+                        media_id = _extract_media_id_from_output(err_text, profile_name)
+                        if media_id:
+                            recovery_dir = output_path.parent / f".flow_recover_{uuid.uuid4().hex[:8]}"
+                            recovery_dir.mkdir(parents=True, exist_ok=True)
+                            try:
+                                download_cmd = [
+                                    gflow_bin, "data", "download", media_id,
+                                    "--profile", profile_name,
+                                    "--out", str(recovery_dir),
+                                ]
+                                subprocess.run(download_cmd, capture_output=True, text=True, env=env, timeout=120)
+                                cand = recovery_dir / f"{media_id}.mp4"
+                                if cand.exists() and cand.stat().st_size > 1000:
+                                    cand.replace(output_path)
+                            finally:
+                                shutil.rmtree(recovery_dir, ignore_errors=True)
+                    except Exception as recover_err:
+                        print(f"[Flow Video Recovery Error ({profile_name})] {recover_err}")
+
+            # 파일 생성 결과 확인
+            actual_file: Path | None = None
+            if output_path.exists() and output_path.stat().st_size > 0:
+                actual_file = output_path
+            else:
+                for ext in (".mp4", ".mov", ".webm"):
+                    alt = output_path.with_suffix(ext)
+                    if alt.exists() and alt.stat().st_size > 0:
+                        actual_file = alt
+                        break
+
+            if actual_file and actual_file.exists() and actual_file.stat().st_size > 0:
+                # 우측 하단 워터마크 자동 제거
+                _clean_watermark_if_available(actual_file)
+                if actual_file != output_path:
+                    shutil.copy2(actual_file, output_path)
+                print(f"[Flow Video] ✅ 비디오 생성 성공! (시도 {attempt}/{max_retries}, {output_path.name})")
+                return output_path
+
+            last_error = (res.stderr or res.stdout or f"Exit code {res.returncode}").strip()
+            print(f"[Flow Video] ⚠️ 시도 {attempt}/{max_retries} 미완료: {last_error[:150]}")
+            time.sleep(3)
+
+        except Exception as e:
+            last_error = str(e)
+            print(f"[Flow Video] ⚠️ 시도 {attempt}/{max_retries} 중 예외 발생: {e}")
+            time.sleep(3)
+
+    raise RuntimeError(f"Google Flow 비디오 생성 실패 ({max_retries}회 시도 모두 실패): {last_error}")
 
 
 MODEL_ALIAS_MAP = {
@@ -1214,6 +1605,9 @@ MODEL_ALIAS_MAP = {
     "minimax_h3_lite": "minimax_h3",
 }
 
+# Higgsfield CLI 호출 전역 동시성 잠금 (Free 플랜의 concurrent_jobs_limit: 1 제약 및 CLI 파일 경합 방지)
+_higgsfield_lock = threading.Lock()
+
 
 def _run_higgsfield_generate(
     job_type: str,
@@ -1221,10 +1615,12 @@ def _run_higgsfield_generate(
     aspect_ratio: str = "9:16",
     start_image: Path | None = None,
     end_image: Path | None = None,
+    image_references: list[Path] | None = None,
     duration: int | None = None,
     resolution: str = "1k",
     multi_shots: bool = False,
     timeout_minutes: int = 15,
+    max_retries: int = 3,
 ) -> str:
     resolved_job_type = MODEL_ALIAS_MAP.get(job_type, job_type)
 
@@ -1246,12 +1642,18 @@ def _run_higgsfield_generate(
         # Grok Imagine 1.5 Lite는 720p/1080p 지원 (기본 720p)
         cmd.extend(["--resolution", "720p"])
 
+    # 다중 이미지 참조 (캐릭터/오브제 에셋 시트 일관성 주입)
+    if image_references:
+        for ref in image_references:
+            if ref and ref.exists():
+                cmd.extend(["--image-references", str(ref)])
+
     # 시작 이미지 (Start Frame)
     if start_image and start_image.exists():
         cmd.extend(["--start-image", str(start_image)])
 
-    # 종료 이미지 (End Frame) - Seedance 2.0 / Kling 3.0 / Minimax H3 등 원테이크 보간 지원 모델
-    if end_image and end_image.exists() and any(k in resolved_job_type for k in ("seedance", "kling", "minimax")):
+    # 종료 이미지 (End Frame) - Seedance 2.0 / Kling 3.0 / Minimax H3 / Wan 3.0 등 원테이크 보간 지원 모델
+    if end_image and end_image.exists() and any(k in resolved_job_type for k in ("seedance", "kling", "minimax", "wan")):
         cmd.extend(["--end-image", str(end_image)])
 
     # 멀티샷 제약 방어 (Kling 3.0: multi_shots=true 시 multi_prompt 배열이 필수)
@@ -1273,9 +1675,21 @@ def _run_higgsfield_generate(
         else:
             cmd.extend(["--duration", str(duration)])
 
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_minutes * 60)
-    if res.returncode != 0:
-        raise RuntimeError(f"Higgsfield generate CLI 에러 ({res.returncode}): {res.stderr or res.stdout}")
+    # 힉스필드 계정 동시성 한도(1개) 보호를 위해 전역 락 진입 후 순차 실행
+    with _higgsfield_lock:
+        for attempt in range(1, max_retries + 1):
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_minutes * 60)
+            if res.returncode == 0:
+                break
+
+            err_msg = res.stderr or res.stdout
+            if "rate_limit_reached" in err_msg and attempt < max_retries:
+                wait_sec = 8 * attempt
+                print(f"[Higgsfield] ⏳ 동시성 한도(rate_limit_reached) 감지 - {wait_sec}초 대기 후 재시도 ({attempt}/{max_retries})...")
+                time.sleep(wait_sec)
+                continue
+
+            raise RuntimeError(f"Higgsfield generate CLI 에러 ({res.returncode}): {err_msg}")
 
     try:
         data = json.loads(res.stdout)
@@ -1286,6 +1700,68 @@ def _run_higgsfield_generate(
         return str(result_url)
     except Exception as exc:
         raise RuntimeError(f"Higgsfield 출력 파싱 실패: {res.stdout}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"Higgsfield 출력 파싱 실패: {res.stdout}") from exc
+
+
+def resolve_scene_references(
+    scene_narration: str = "",
+    scene_prompt: str = "",
+    requires_character: bool = True,
+    required_props: list[str] | None = None,
+    manifest: AssetSheetManifest | None = None,
+) -> tuple[bool, bool, bool]:
+    """
+    씬의 나레이션과 프롬프트, 그리고 에셋 시트 매니페스트를 종합 분석하여
+    (use_character, use_prop1, use_prop2)의 참조 여부를 결정합니다.
+    """
+    prompt_lower = (scene_prompt or "").lower()
+    narration_lower = (scene_narration or "").lower()
+    combined_text = f"{prompt_lower} {narration_lower}"
+
+    # 1. 소품 1 & 소품 2 검사
+    use_prop1 = False
+    use_prop2 = False
+
+    req_props = [str(p).lower() for p in (required_props or [])]
+    p1_name = (manifest.prop_1_name if manifest and manifest.prop_1_name else "").lower()
+    p2_name = (manifest.prop_2_name if manifest and manifest.prop_2_name else "").lower()
+
+    # prop 1 키워드 토큰 분해 및 매칭 (예: '뇌 모형' -> ['뇌', '모형', 'brain'])
+    p1_tokens = [w for w in p1_name.split() if len(w) >= 1]
+    if "prop_1" in req_props or "prop1" in req_props:
+        use_prop1 = True
+    elif p1_name and (p1_name in combined_text or any(t in combined_text for t in p1_tokens)):
+        use_prop1 = True
+
+    # prop 2 키워드 토큰 분해 및 매칭 (예: '스마트폰' -> ['스마트폰', 'smartphone'])
+    p2_tokens = [w for w in p2_name.split() if len(w) >= 1]
+    if "prop_2" in req_props or "prop2" in req_props:
+        use_prop2 = True
+    elif p2_name and (p2_name in combined_text or any(t in combined_text for t in p2_tokens)):
+        use_prop2 = True
+
+    # 2. 캐릭터 검사
+    if requires_character is False:
+        use_character = False
+    else:
+        # 캐릭터 관련 키워드 확인
+        char_keywords = (
+            "person", "character", "man", "woman", "human", "face", "eyes", "holding",
+            "standing", "sitting", "looking", "hand", "doctor", "boy", "girl", "people",
+            "사람", "인물", "나", "너", "그", "주인공", "캐릭터", "표정", "얼굴", "손",
+            "앉아", "서 있", "쳐다", "바라", "눈", "입", "박사", "남자", "여자"
+        )
+        has_char_word = any(k in combined_text for k in char_keywords)
+
+        # 소품 전용 클로즈업인지 확인 (소품 키워드가 있으면서 캐릭터 단어가 전무한 경우)
+        is_prop_only = (use_prop1 or use_prop2) and not has_char_word
+        if is_prop_only:
+            use_character = False
+        else:
+            use_character = True
+
+    return use_character, use_prop1, use_prop2
 
 
 def generate_scene_image_for_project(
@@ -1293,6 +1769,7 @@ def generate_scene_image_for_project(
     scene_id: int,
     settings: AppSettings,
     model_name: str = "nano_banana_pro",
+    use_asset_sheet: bool = False,
 ) -> Path:
     video_scenes_path = project_dir / VIDEO_SCENES_FILENAME
     if not video_scenes_path.exists():
@@ -1310,7 +1787,16 @@ def generate_scene_image_for_project(
 
     prompt = target_scene.get("start_image_prompt", "")
     if not prompt:
-        prompt = f"Claymation style vertical 9:16 portrait scene {scene_id}, cute plasticine texture"
+        concept_kit_file = project_dir / CONCEPT_KIT_FILENAME
+        style_id = "claymation"
+        if concept_kit_file.exists():
+            try:
+                ck_data = json.loads(concept_kit_file.read_text(encoding="utf-8"))
+                style_id = ck_data.get("visual_style_id", "claymation")
+            except Exception:
+                pass
+        style = get_visual_style(style_id)
+        prompt = f"{style.sample_prompt_prefix}, scene {scene_id}"
 
     scenes_dir = project_dir / SCENES_DIR_NAME
     scenes_dir.mkdir(parents=True, exist_ok=True)
@@ -1341,15 +1827,55 @@ def generate_scene_image_for_project(
                 pass
         return img_path
 
+    # 에셋 시트 일관성 참조 이미지 구성 및 프롬프트 증강 (Higgsfield 및 Google Flow 모델 선별 주입)
+    image_references: list[Path] = []
+    effective_prompt = prompt
+
+    if use_asset_sheet and model_name != "dall-e-3":
+        assets_dir = project_dir / "assets"
+        char_file = assets_dir / "master_character.png"
+        prop1_file = assets_dir / "prop_1.png"
+        prop2_file = assets_dir / "prop_2.png"
+
+        manifest = read_asset_sheet_manifest(project_dir)
+        use_char, use_p1, use_p2 = resolve_scene_references(
+            scene_narration=target_scene.get("narration", ""),
+            scene_prompt=prompt,
+            requires_character=target_scene.get("requires_character", True),
+            required_props=target_scene.get("required_props", []),
+            manifest=manifest,
+        )
+
+        ref_cues = []
+        if use_char and char_file.exists():
+            image_references.append(char_file)
+            char_label = manifest.character_name if manifest and manifest.character_name else "main character"
+            ref_cues.append(f"Image {len(image_references)}: Master Character '{char_label}' (maintain exact facial identity, hair, and clothing)")
+
+        if use_p1 and prop1_file.exists():
+            image_references.append(prop1_file)
+            p1_label = manifest.prop_1_name if manifest and manifest.prop_1_name else "hero prop 1"
+            ref_cues.append(f"Image {len(image_references)}: Hero Prop '{p1_label}' (replicate exact texture and shape)")
+
+        if use_p2 and prop2_file.exists():
+            image_references.append(prop2_file)
+            p2_label = manifest.prop_2_name if manifest and manifest.prop_2_name else "hero prop 2"
+            ref_cues.append(f"Image {len(image_references)}: Hero Prop '{p2_label}' (replicate exact texture and shape)")
+
+        if image_references and ref_cues:
+            cue_header = f"[VISUAL CONSISTENCY REFERENCE: {'; '.join(ref_cues)}.] "
+            effective_prompt = cue_header + prompt
+
     # 0. Google Flow 모델 시도
     if model_name in FLOW_IMAGE_MODELS or model_name.startswith("flow_"):
         alias = FLOW_IMAGE_MODELS.get(model_name, "nano-pro")
         try:
             _run_flow_image_generate(
                 model_alias=alias,
-                prompt=prompt,
+                prompt=effective_prompt,
                 output_path=start_image_path,
                 aspect_ratio="9:16",
+                references=image_references if (use_asset_sheet and image_references) else None,
             )
             if start_image_path.exists() and start_image_path.stat().st_size > 1000:
                 return _finalize_image(start_image_path)
@@ -1361,16 +1887,17 @@ def generate_scene_image_for_project(
         try:
             image_url = _run_higgsfield_generate(
                 job_type=model_name or "nano_banana_pro",
-                prompt=prompt,
+                prompt=effective_prompt,
                 aspect_ratio="9:16",
+                image_references=image_references if image_references else None,
                 resolution="2k" if "gpt" in model_name or "seedream" in model_name else "1k",
             )
             resp = httpx.get(image_url, timeout=90.0)
             if resp.status_code == 200:
                 start_image_path.write_bytes(resp.content)
                 return _finalize_image(start_image_path)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Higgsfield Image Generate Error - Scene {scene_id}] {e}")
 
     # 2. OpenAI DALL-E 3 시도
     try:
@@ -1443,7 +1970,7 @@ def generate_scene_video_for_project(
         prev_final_frame = scenes_dir / f"scene_{scene_id - 1:02d}_final.png"
         if prev_final_frame.exists():
             start_image_path = prev_final_frame
-            end_image = current_scene_image if any(k in model_name for k in ("kling", "seedance", "minimax")) else None
+            end_image = current_scene_image if any(k in model_name for k in ("kling", "seedance", "minimax", "wan")) else None
         else:
             start_image_path = current_scene_image
             end_image = None
@@ -1594,6 +2121,10 @@ def refine_and_regenerate_scene(
 - 대본 나레이션 도입부의 시작 구도와 피사체의 초기 상태를 영문으로 작성하세요.
 """
 
+        style_id = concept_kit_data.get("visual_style_id", "claymation")
+        active_style = get_visual_style(style_id)
+        current_visual_style = concept_kit_data.get('visual_style') or active_style.default_concept_style
+
         prompt = f"""당신은 세계 최고의 AI 이미지 프롬프트 디렉터입니다.
 사용자의 피드백을 100% 반영하여, 현재 씬(Scene {scene_id})의 영문 이미지 프롬프트를 새롭게 전면 재작성하세요.
 
@@ -1601,7 +2132,7 @@ def refine_and_regenerate_scene(
 - 씬 번호: Scene {scene_id}
 - 대본 나레이션: {target_scene.get('narration', '')}
 - 기존 이미지 프롬프트: {target_scene.get('start_image_prompt', '')}
-- 컨셉 스타일: {concept_kit_data.get('visual_style', 'Cute professional miniature claymation infographic')}
+- 컨셉 스타일: {current_visual_style}
 - 피사체/조명: {concept_kit_data.get('color_and_lighting', '')}
 - 씬 매칭(클라이맥스 목적지) 적용 여부: {'적용 (도착점 클라이맥스)' if is_matched_mode else '미적용 (0초 시작 프레임)'}
 {scene_role_guide}
@@ -1617,7 +2148,7 @@ def refine_and_regenerate_scene(
    - 피사체와 도구/환경의 상대적 위치와 상호작용이 물리적 상식에 맞아야 하며, 엉뚱한 위치를 만지거나 허공을 짚는 왜곡된 구도를 엄격히 금지합니다.
 4. [주연 캐릭터 락 (Hero Character Lock)]: 대본 및 컨셉 키트에 정의된 핵심 주인공의 고유 명칭과 비주얼 특징을 일관되게 명시하세요. 절대 'a generic superhero'나 'a figurine'처럼 모호하게 바꿔 엉뚱한 캐릭터가 렌더링되게 하지 마세요.
 5. [나레이션 직결 시각화 원칙 (Narration-Driven Visual Metaphor)]: 해당 씬의 나레이션 핵심 메시지와 과학적 사실을 시청자가 1초 만에 이해할 수 있는 구체적인 시각적 은유와 상호작용 장치를 화면 중심에 배치하세요.
-6. [스타일 및 조명 유지]: 클레이 질감(Claymation style vertical 9:16 portrait, handcrafted plasticine texture, visible fingerprints, soft studio directional lighting)은 일관되게 유지하세요.
+6. [스타일 및 조명 유지]: 현재 프로젝트의 비주얼 스타일({active_style.name}: {active_style.image_prompt_guide})을 프롬프트 전체에 철저히 유지하세요.
 7. [텍스트 금지]: 끝에 strictly NO text, NO letters를 반드시 포함하세요.
 
 반드시 다음 pure JSON으로만 응답하세요:
@@ -1654,7 +2185,7 @@ def refine_and_regenerate_scene(
 - 이 씬(Scene {scene_id})은 이전 씬(Scene {scene_id - 1})의 마지막 프레임에서 출발하여, 이번 씬의 클라이맥스 목적지 이미지({target_scene.get('start_image_prompt', '')})로 5초간 카메라 무빙을 거쳐 부드럽게 도킹(Docking)하는 원테이크 연결 비디오입니다!
 - 영상 프롬프트 작성 공식:
   1) Starting from: 이전 씬의 마지막 샷 구도/피사체 상태에서 출발 명시.
-  2) Dynamic Motion: 5초간의 끊김 없는 부드러운 카메라 무빙(크레인 틸트, 패닝 등)과 클레이 피사체의 역동적 변화.
+  2) Dynamic Motion: 5초간의 끊김 없는 부드러운 카메라 무빙(크레인 틸트, 패닝 등)과 피사체의 역동적 변화.
   3) Finishing on: 이번 씬의 클라이맥스 목적지 이미지의 구도와 피사체에 완벽히 도킹하여 안착.
 """
         else:
@@ -1680,7 +2211,7 @@ def refine_and_regenerate_scene(
 [★ 비디오 프롬프트 재작성 핵심 규칙 - 엄격 준수]
 1. [구버전 모션 전면 삭제]: 사용자 피드백과 모순되거나 상충하는 기존의 카메라 워킹 및 피사체 움직임은 완전히 삭제하세요.
 2. [피드백 모션 최우선 연출]: 사용자가 요구한 핵심 모션(예: 특정 카메라 앵글, 피사체 반응, 액션 변화)을 비디오 프롬프트의 중심 축으로 직관적이고 다이내믹하게 서술하세요.
-3. [자연스러운 연속성]: 끊김이나 점프컷 없이 1개의 매끄러운 영문 문단으로 작성하세요 (Smooth continuous stop-motion animation, no jump cuts).
+3. [자연스러운 연속성]: 끊김이나 점프컷 없이 1개의 매끄러운 영문 문단으로 작성하세요 (Smooth continuous single-take motion, no jump cuts).
 
 반드시 다음 pure JSON으로만 응답하세요:
 {{
@@ -1836,6 +2367,10 @@ def get_production_state(project_dir: Path, project_id: str | None = None) -> Pr
                 pid = project_id or project_dir.name
                 if start_p.exists():
                     vs.start_image_url = f"/api/projects/{pid}/production/scenes/scene_{sc_id:02d}_start.png"
+                    # 실제 AI 생성 이미지(통상 100KB~2MB 이상)인지 판별 (15KB 이하 fallback 플레이스홀더 제외)
+                    vs.has_image = (start_p.stat().st_size > 30000)
+                else:
+                    vs.has_image = False
                 if final_p.exists():
                     vs.final_frame_url = f"/api/projects/{pid}/production/scenes/scene_{sc_id:02d}_final.png"
                 video_p = scenes_dir / f"scene_{sc_id:02d}_video.mp4"
@@ -1861,6 +2396,27 @@ def get_production_state(project_dir: Path, project_id: str | None = None) -> Pr
     has_thumbnail = thumb_file.exists() and thumb_file.stat().st_size > 0
     thumbnail_url = f"/api/projects/{pid}/production/thumbnail" if has_thumbnail else None
 
+    asset_sheet = read_asset_sheet_manifest(project_dir, pid)
+
+    # 에셋 시트가 존재할 경우 각 씬별 동적 참조 주입 목록(active_references) 자동 판별
+    if asset_sheet and asset_sheet.has_sheet:
+        for vs in video_scenes:
+            u_char, u_p1, u_p2 = resolve_scene_references(
+                scene_narration=vs.narration,
+                scene_prompt=vs.start_image_prompt,
+                requires_character=vs.requires_character,
+                required_props=vs.required_props,
+                manifest=asset_sheet,
+            )
+            refs: list[str] = []
+            if u_char:
+                refs.append("character")
+            if u_p1:
+                refs.append("prop_1")
+            if u_p2:
+                refs.append("prop_2")
+            vs.active_references = refs
+
     return ProductionState(
         has_audio=has_audio,
         audio_filename=TTS_AUDIO_FILENAME if has_audio else None,
@@ -1873,6 +2429,7 @@ def get_production_state(project_dir: Path, project_id: str | None = None) -> Pr
         has_video_scenes=has_video_scenes,
         video_scene_count=len(video_scenes),
         video_scenes=video_scenes,
+        asset_sheet=asset_sheet,
         has_thumbnail=has_thumbnail,
         thumbnail_url=thumbnail_url,
         has_final_video=has_final_video,
@@ -2148,6 +2705,41 @@ def update_project_visual_style(
 
     ck_data["visual_style_id"] = style.id
     ck_data["visual_style"] = style.default_concept_style
+
+    # 에셋 시트 프롬프트도 새 비주얼 스타일에 맞게 즉시 리스타일링
+    char_def = ck_data.get("character_definition") or {}
+    char_name = char_def.get("name", "main_character")
+    char_desc = (char_def.get("description") or "").strip()
+    if not char_desc or char_desc == "miniature handcrafted clay person":
+        char_desc = f"Main character '{char_name}' designed in authentic {style.name} style"
+
+    key_props = ck_data.get("key_props") or []
+    prop_1_info = key_props[0] if len(key_props) > 0 else {"name": "key_prop_1", "description": "thematic scientific object"}
+    prop_2_info = key_props[1] if len(key_props) > 1 else {"name": "key_prop_2", "description": "thematic secondary prop"}
+    p1_desc = prop_1_info.get("description") or f"hero prop '{prop_1_info.get('name', 'prop1')}'"
+    p2_desc = prop_2_info.get("description") or f"secondary prop '{prop_2_info.get('name', 'prop2')}'"
+
+    # 비-클레이메이션 스타일 선택 시 과거 점토 수식어 자동 정제
+    if style.id != "claymation":
+        char_desc = char_desc.replace("clay ", "").replace("clay", "").replace("Clay ", "").replace("Clay", "").replace("plasticine ", "")
+        p1_desc = p1_desc.replace("clay ", "").replace("clay", "").replace("Clay ", "").replace("Clay", "").replace("plasticine ", "")
+        p2_desc = p2_desc.replace("clay ", "").replace("clay", "").replace("Clay ", "").replace("Clay", "").replace("plasticine ", "")
+
+    ck_data["master_asset_sheet_prompt"] = (
+        f"[{style.name.upper()} MASTER CONCEPT ART SHEET - {style.default_concept_style}]. "
+        f"16:9 widescreen aspect ratio (2752x1536), solid pure light-gray (#f0f2f5) studio backdrop. "
+        f"Strict mathematical layout with 2 main zones separated by a wide empty blank vertical gutter: "
+        f"[ZONE 1: LEFT 58% WIDTH (X: 0% to 58%)]: Full-body character turnaround of {char_desc} in authentic {style.name} aesthetic, "
+        f"showing exactly 3 views side-by-side (front view, 45-degree 3/4 view, side profile view), centered within this left 58% box and strictly NOT crossing past X=58%. "
+        f"[EMPTY VERTICAL GUTTER (X: 58% to 64%)]: Completely blank empty studio background spacing with zero objects. "
+        f"[ZONE 2: RIGHT 36% WIDTH (X: 64% to 100%)]: Divided vertically into two isolated stacked boxes: "
+        f"  - [TOP BOX (Y: 0% to 48%)]: Close-up isolated hero prop of {p1_desc} in authentic {style.name} aesthetic, centered floating on empty space. "
+        f"  - [MIDDLE HORIZONTAL GUTTER (Y: 48% to 52%)]: Completely blank empty space. "
+        f"  - [BOTTOM BOX (Y: 52% to 100%)]: Close-up isolated hero prop of {p2_desc} in authentic {style.name} aesthetic, centered floating on empty space. "
+        f"Rendering directive: Authentic {style.image_prompt_guide}. Strict tactile material consistency across character and props, "
+        f"macro photography studio lighting, generous negative margins, strictly NO text, NO labels, NO borders, NO grid lines."
+    )
+
     concept_kit = ConceptKit.model_validate(ck_data)
     concept_kit_file.write_text(json.dumps(concept_kit.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -2161,16 +2753,8 @@ def update_project_visual_style(
 
 
 def _get_project_title(project_dir: Path) -> str | None:
-    pj_file = project_dir / "project.json"
-    if pj_file.exists():
-        try:
-            p_data = json.loads(pj_file.read_text(encoding="utf-8"))
-            title = p_data.get("project_title", "")
-            if title and title.strip() and title.strip() != "untitled":
-                return title.strip()
-        except Exception:
-            pass
-    return None
+    from app.production.renderer import resolve_project_shorts_title
+    return resolve_project_shorts_title(project_dir)
 
 
 def save_thumbnail_image(project_dir: Path, image_bytes: bytes) -> Path:
@@ -2229,13 +2813,18 @@ def generate_thumbnail_image_for_project(
     final_prompt = prompt.strip() if prompt and prompt.strip() else ""
     if not final_prompt:
         concept_kit_file = project_dir / CONCEPT_KIT_FILENAME
-        visual_style = "Cute professional claymation infographic, vibrant colors, clean lighting"
+        style_id = "claymation"
+        visual_style = ""
         if concept_kit_file.exists():
             try:
                 ck = json.loads(concept_kit_file.read_text(encoding="utf-8"))
-                visual_style = ck.get("visual_style", visual_style)
+                style_id = ck.get("visual_style_id", "claymation")
+                visual_style = ck.get("visual_style", "")
             except Exception:
                 pass
+        if not visual_style:
+            style = get_visual_style(style_id)
+            visual_style = style.default_concept_style
 
         if title:
             final_prompt = f"YouTube shorts high-contrast clickbait cover thumbnail about '{title}', {visual_style}, 9:16 vertical portrait, dramatic curiosity, bold composition"

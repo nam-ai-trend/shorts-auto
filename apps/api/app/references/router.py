@@ -181,7 +181,8 @@ def create_references_router(
                 command="search.list",
             )
             job_id = job.job_id
-            update_job_state(outputs, project_id, job.job_id, "running", "Searching YouTube")
+            search_desc = f"Searching YouTube (keyword: '{payload.keyword or ''}', channel: '{payload.channel_query or ''}', filter: {payload.duration_filter})"
+            update_job_state(outputs, project_id, job.job_id, "running", search_desc)
             client = youtube_client_factory(settings.youtube_api_key)
             candidates = client.search(payload)
             write_reference_candidates(project_dir(outputs, project_id), candidates)
@@ -190,7 +191,7 @@ def create_references_router(
                 project_id,
                 job.job_id,
                 "succeeded",
-                f"Found {len(candidates)} reference candidates",
+                f"Found {len(candidates)} reference candidates for '{payload.keyword or payload.channel_query}'",
                 output_paths=["reference_candidates.json"],
             )
             return {"candidates": [candidate.model_dump() for candidate in candidates]}

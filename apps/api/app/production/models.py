@@ -48,6 +48,10 @@ class VideoSceneItem(BaseModel):
     continuity: ContinuityState = Field(default_factory=ContinuityState)
     camera_movement: str | None = None
     is_locked: bool = False
+    has_image: bool = False
+    requires_character: bool = True
+    required_props: list[str] = Field(default_factory=list)
+    active_references: list[str] = Field(default_factory=list)
     last_feedback: str | None = None
     last_image_feedback: str | None = None
     last_video_feedback: str | None = None
@@ -98,6 +102,50 @@ class ThumbnailFromSceneRequest(BaseModel):
     scene_id: int = 1
 
 
+class CharacterDefinition(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = "main_character"
+    description: str = ""
+    turnaround_prompt: str = ""
+
+
+class KeyPropItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str  # "prop_1" | "prop_2"
+    name: str = ""
+    description: str = ""
+    prompt: str = ""
+
+
+class AssetSheetManifest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    has_sheet: bool = False
+    master_sheet_url: str | None = None
+    character_url: str | None = None
+    prop_1_url: str | None = None
+    prop_2_url: str | None = None
+    prop_1_name: str = "Object 1"
+    prop_2_name: str = "Object 2"
+    character_name: str = "Main Character"
+    created_at: str | None = None
+
+
+class GenerateAssetSheetRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    model: str = "nano_banana_pro"
+
+
+class BatchImageGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    model: str = "nano_banana_pro"
+    use_asset_sheet: bool = False
+
+
 class ConceptKit(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -107,6 +155,9 @@ class ConceptKit(BaseModel):
     core_objects: list[str] = Field(default_factory=list)
     camera_composition: str = "9:16 vertical composition, shallow depth of field"
     continuity_rules: list[str] = Field(default_factory=list)
+    character_definition: CharacterDefinition | None = None
+    key_props: list[KeyPropItem] = Field(default_factory=list)
+    master_asset_sheet_prompt: str = ""
 
 
 class GeneratePromptsRequest(BaseModel):
@@ -142,6 +193,9 @@ class ProductionState(BaseModel):
     # 썸네일 관리
     has_thumbnail: bool = False
     thumbnail_url: str | None = None
+
+    # 에셋 시트 관리 (Visual Consistency)
+    asset_sheet: AssetSheetManifest | None = None
 
     # 최종 쇼츠 렌더링 결과
     has_final_video: bool = False

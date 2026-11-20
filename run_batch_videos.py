@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "apps" / "api"))
 
 from app.core.settings import load_settings
 from app.production.service import generate_scene_video_for_project, get_flow_worker_count
-from app.production.renderer import render_final_shorts
+from app.production.renderer import render_final_shorts, resolve_project_shorts_title
 
 
 def _resolve_project_dir(base_outputs: Path, project_id: str | None) -> Path:
@@ -31,18 +31,7 @@ def _resolve_project_dir(base_outputs: Path, project_id: str | None) -> Path:
 
 
 def _resolve_project_title(project_dir: Path, cli_title: str | None) -> str | None:
-    if cli_title is not None:
-        return cli_title
-    pj_file = project_dir / "project.json"
-    if pj_file.exists():
-        try:
-            data = json.loads(pj_file.read_text(encoding="utf-8"))
-            title = data.get("project_title", "").strip()
-            if title and title != "untitled":
-                return title
-        except Exception:
-            pass
-    return None
+    return resolve_project_shorts_title(project_dir, cli_title)
 
 
 def _process_single_scene(

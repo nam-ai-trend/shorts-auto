@@ -11,6 +11,7 @@ from app.jobs.service import append_job, update_job_state
 from app.production.models import (
     ApplyMotionRequest,
     FeedbackRegenerateRequest,
+    GenerateAssetSheetRequest,
     GeneratePromptsRequest,
     ProductionState,
     RenderShortsRequest,
@@ -33,6 +34,7 @@ from app.production.service import (
     apply_motion_to_scene,
     delete_thumbnail_image,
     generate_concept_kit_and_video_scenes,
+    generate_master_asset_sheet,
     generate_scene_image_for_project,
     generate_scene_video_for_project,
     generate_thumbnail_image_for_project,
@@ -40,6 +42,7 @@ from app.production.service import (
     get_flow_worker_count,
     get_production_state,
     pass_continuity_frame_to_next_scene,
+    read_asset_sheet_manifest,
     recommend_motion_for_scene,
     refine_and_regenerate_scene,
     save_thumbnail_image,
@@ -47,7 +50,7 @@ from app.production.service import (
     update_project_visual_style,
     update_scene_prompts_for_project,
 )
-from app.production.renderer import render_final_shorts
+from app.production.renderer import render_final_shorts, resolve_project_shorts_title
 from app.projects.service import _display_name, read_project, save_project
 
 
@@ -211,6 +214,52 @@ def create_production_router(
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Project not found") from exc
 
+    @router.get("/assets/{filename}")
+    def get_asset_file(project_id: str, filename: str, outputs: Path = Depends(outputs_dir_provider)):
+        try:
+            path = project_dir(outputs, project_id)
+            file_path = path / "assets" / filename
+            if not file_path.exists():
+                raise HTTPException(status_code=404, detail="Asset not found")
+            media_type = "image/png"
+            return FileResponse(
+                path=str(file_path),
+                media_type=media_type,
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+            )
+        except HTTPException:
+            raise
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    @router.get("/asset-sheet")
+    def get_asset_sheet(project_id: str, outputs: Path = Depends(outputs_dir_provider)):
+        try:
+            path = project_dir(outputs, project_id)
+            manifest = read_asset_sheet_manifest(path, project_id)
+            return {"asset_sheet": manifest.model_dump() if manifest else None}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.post("/asset-sheet")
+    def create_asset_sheet(
+        project_id: str,
+        req: GenerateAssetSheetRequest | None = None,
+        outputs: Path = Depends(outputs_dir_provider),
+        settings: AppSettings = Depends(settings_provider),
+    ):
+        try:
+            path = project_dir(outputs, project_id)
+            model = req.model if req and req.model else "nano_banana_pro"
+            manifest = generate_master_asset_sheet(path, settings, model=model)
+            return manifest.model_dump()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @router.post("/concepts")
     def generate_concepts(
         project_id: str,
@@ -262,12 +311,13 @@ def create_production_router(
         project_id: str,
         scene_id: int,
         model: str = "nano_banana_pro",
+        use_asset_sheet: bool = False,
         outputs: Path = Depends(outputs_dir_provider),
         settings: AppSettings = Depends(settings_provider),
     ):
         try:
             path = project_dir(outputs, project_id)
-            generate_scene_image_for_project(path, scene_id, settings, model_name=model)
+            generate_scene_image_for_project(path, scene_id, settings, model_name=model, use_asset_sheet=use_asset_sheet)
             return get_production_state(path, project_id).model_dump()
         except HTTPException:
             raise
@@ -278,6 +328,8 @@ def create_production_router(
     def generate_all_scene_images(
         project_id: str,
         model: str = "nano_banana_pro",
+        use_asset_sheet: bool = False,
+        only_missing: bool = False,
         outputs: Path = Depends(outputs_dir_provider),
         settings: AppSettings = Depends(settings_provider),
     ):
@@ -286,23 +338,41 @@ def create_production_router(
             state = get_production_state(path, project_id)
             unlocked_scenes = [sc for sc in state.video_scenes if not sc.is_locked]
 
-            # Flow CLI는 멀티 워커 프로필 풀 개수(기본 3개)만큼, API 기반(Higgsfield/DALL-E)은 최대 4개 병렬 실행
+            if only_missing:
+                scenes_dir = path / SCENES_DIR_NAME
+                target_scenes = []
+                for sc in unlocked_scenes:
+                    start_p = scenes_dir / f"scene_{sc.scene_id:02d}_start.png"
+                    # 실제 AI 생성 이미지가 없거나 30KB 미만(플레이스홀더)인 씬만 골라서 생성
+                    if not start_p.exists() or start_p.stat().st_size < 30000:
+                        target_scenes.append(sc)
+            else:
+                target_scenes = unlocked_scenes
+
+            if not target_scenes:
+                return get_production_state(path, project_id).model_dump()
+
+            # Flow CLI는 멀티 워커 프로필 풀 개수(기본 3개)만큼 병렬 실행
+            # Higgsfield CLI는 동시 호출 시 CLI 로컬 파일/토큰 경합 및 API Rate Limit(동시성 한도)으로 인해 실패할 수 있으므로 1개씩 안전하게 순차 실행
             is_flow = model.startswith("flow_") or "flow" in model.lower()
-            worker_limit = get_flow_worker_count() if is_flow else 4
-            max_workers = min(worker_limit, len(unlocked_scenes) or 1)
+            if is_flow:
+                worker_limit = get_flow_worker_count()
+                max_workers = min(worker_limit, len(target_scenes) or 1)
+            else:
+                max_workers = 1
 
             if max_workers > 1:
                 from concurrent.futures import ThreadPoolExecutor
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     futures = [
-                        executor.submit(generate_scene_image_for_project, path, sc.scene_id, settings, model)
-                        for sc in unlocked_scenes
+                        executor.submit(generate_scene_image_for_project, path, sc.scene_id, settings, model, use_asset_sheet)
+                        for sc in target_scenes
                     ]
                     for f in futures:
                         f.result()
             else:
-                for sc in unlocked_scenes:
-                    generate_scene_image_for_project(path, sc.scene_id, settings, model_name=model)
+                for sc in target_scenes:
+                    generate_scene_image_for_project(path, sc.scene_id, settings, model_name=model, use_asset_sheet=use_asset_sheet)
 
             return get_production_state(path, project_id).model_dump()
         except HTTPException:
@@ -485,13 +555,7 @@ def create_production_router(
         try:
             path = project_dir(outputs, project_id)
             title = req.title.strip() if req and req.title and req.title.strip() else None
-            if not title:
-                try:
-                    project = read_project(outputs, project_id)
-                    if project.project_title and project.project_title.strip() and project.project_title.strip() != "untitled":
-                        title = project.project_title.strip()
-                except Exception:
-                    pass
+            title = resolve_project_shorts_title(path, title)
             job = append_job(
                 outputs,
                 project_id,
@@ -581,6 +645,7 @@ def create_production_router(
         project_id: str,
         file: UploadFile = File(...),
         outputs: Path = Depends(outputs_dir_provider),
+        settings: AppSettings = Depends(settings_provider),
     ):
         try:
             path = project_dir(outputs, project_id)
@@ -588,6 +653,11 @@ def create_production_router(
             if not content:
                 raise HTTPException(status_code=400, detail="업로드된 파일이 비어 있습니다.")
             save_thumbnail_image(path, content)
+            if (path / "final.mp4").exists():
+                try:
+                    render_final_shorts(path, settings)
+                except Exception as r_err:
+                    print(f"[Auto-Render on Thumbnail Upload Error] {r_err}")
             return get_production_state(path, project_id).model_dump()
         except HTTPException:
             raise
@@ -606,6 +676,11 @@ def create_production_router(
             model = req.model if req and req.model else "nano_banana_pro"
             prompt = req.prompt if req else None
             generate_thumbnail_image_for_project(path, settings, model_name=model, prompt=prompt)
+            if (path / "final.mp4").exists():
+                try:
+                    render_final_shorts(path, settings)
+                except Exception as r_err:
+                    print(f"[Auto-Render on Thumbnail Generate Error] {r_err}")
             return get_production_state(path, project_id).model_dump()
         except HTTPException:
             raise
@@ -617,11 +692,17 @@ def create_production_router(
         project_id: str,
         req: ThumbnailFromSceneRequest | None = None,
         outputs: Path = Depends(outputs_dir_provider),
+        settings: AppSettings = Depends(settings_provider),
     ):
         try:
             path = project_dir(outputs, project_id)
             scene_id = req.scene_id if req and req.scene_id else 1
             set_thumbnail_from_scene(path, scene_id=scene_id)
+            if (path / "final.mp4").exists():
+                try:
+                    render_final_shorts(path, settings)
+                except Exception as r_err:
+                    print(f"[Auto-Render on Thumbnail Set From Scene Error] {r_err}")
             return get_production_state(path, project_id).model_dump()
         except HTTPException:
             raise
@@ -632,10 +713,16 @@ def create_production_router(
     def delete_thumbnail(
         project_id: str,
         outputs: Path = Depends(outputs_dir_provider),
+        settings: AppSettings = Depends(settings_provider),
     ):
         try:
             path = project_dir(outputs, project_id)
             delete_thumbnail_image(path)
+            if (path / "final.mp4").exists():
+                try:
+                    render_final_shorts(path, settings)
+                except Exception as r_err:
+                    print(f"[Auto-Render on Thumbnail Delete Error] {r_err}")
             return get_production_state(path, project_id).model_dump()
         except HTTPException:
             raise
